@@ -496,6 +496,38 @@ internal fun CompactionNoticeLine(modifier: Modifier = Modifier) {
     )
 }
 
+/** A saved failure remains readable after the transient snackbar disappears. */
+@Composable
+internal fun CompactionResultCard(message: String, showRetry: Boolean, busy: Boolean, onRetry: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val stopped = message.startsWith("Compaction stopped.")
+    val saved = message.startsWith("Chat compacted, but")
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        color = scheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Text(if (stopped) "Compaction stopped" else if (saved) "Summary saved" else "Compaction failed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (stopped || saved) scheme.onSurface else scheme.error)
+            Text(if (saved) "Your summary is saved. Some task information could not refresh."
+                else "Your messages are still here. Try again or choose another model.",
+                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            if (expanded) androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(message, style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+            }
+            androidx.compose.foundation.layout.FlowRow {
+                if (showRetry && !saved) TextButton(onClick = onRetry, enabled = !busy) { Text("Retry") }
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide details" else "Details") }
+            }
+        }
+    }
+}
+
 /** Pending file attachments in the composer: name, size, tap to remove. */
 @Composable
 internal fun FileAttachmentChips(

@@ -129,7 +129,8 @@ object RunRecovery {
             }
     }
     fun context(messages: List<ChatMessage>, record: TaskRecord): List<ChatMessage> {
-        val slice = messages.filter { it.createdAt >= record.contextAfter }
+        val slice = messages.filter { it.createdAt >= record.contextAfter ||
+            (it.role == Role.SYSTEM && it.text.startsWith(AgentEngine.COMPACTION_PREFIX)) }
         val history = ContextHygiene.forModel(slice)
         return if (record.summaryOverride == null) history else
             listOf(ContextHygiene.summaryMessage(record.summaryOverride)) + history.filterNot {

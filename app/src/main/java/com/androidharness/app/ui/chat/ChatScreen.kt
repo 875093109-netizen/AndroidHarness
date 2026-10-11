@@ -117,6 +117,7 @@ import com.androidharness.app.ui.chat.components.QuestionCard
 import com.androidharness.app.skills.slashInvokedSkillName
 import com.androidharness.app.skills.slashSkillInstruction
 import com.androidharness.app.ui.chat.components.CompactionBanner
+import com.androidharness.app.ui.chat.components.CompactionResultCard
 import com.androidharness.app.ui.chat.components.CompactionNoticeLine
 import com.androidharness.app.ui.chat.components.FileAttachmentChips
 import com.androidharness.app.ui.chat.components.MentionSuggestions
@@ -1312,7 +1313,17 @@ fun ChatScreen(
                             }
                             Role.TOOL -> Unit
                             Role.SYSTEM -> {
-                                if (message.text.startsWith(com.androidharness.app.agent.ContextHygiene.COMPACTION_NOTICE_PREFIX)) {
+                                if (message.text.startsWith("Compaction failed:") || message.text.startsWith("Compaction stopped.") ||
+                                    message.text.startsWith("Chat compacted, but")) {
+                                    indexedItem(key = "message-$messageKey-system", contentType = ChatListContentType.System) {
+                                        CompactionResultCard(message.text,
+                                            showRetry = state.messages.lastOrNull { m ->
+                                                m.role == Role.SYSTEM && (m.text.startsWith("Compaction failed:") || m.text.startsWith("Compaction stopped.") ||
+                                                    m.text.startsWith(com.androidharness.app.agent.ContextHygiene.COMPACTION_NOTICE_PREFIX))
+                                            }?.id == message.id,
+                                            busy = state.busy, onRetry = { viewModel.send("/compact") })
+                                    }
+                                } else if (message.text.startsWith(com.androidharness.app.agent.ContextHygiene.COMPACTION_NOTICE_PREFIX)) {
                                     indexedItem(key = "message-$messageKey-system", contentType = ChatListContentType.System) {
                                         Box(Modifier.animateItem(fadeInSpec = fastEffectsSpec(), placementSpec = null, fadeOutSpec = null)) {
                                             CompactionNoticeLine()

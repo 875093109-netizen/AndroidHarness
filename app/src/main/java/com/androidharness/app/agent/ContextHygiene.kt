@@ -90,7 +90,7 @@ object ContextHygiene {
 
     fun compactionNotice(): ChatMessage = ChatMessage(
         role = Role.SYSTEM,
-        text = "$COMPACTION_NOTICE_PREFIX older messages were summarized into the hidden note above]",
+        text = "$COMPACTION_NOTICE_PREFIX earlier messages were summarized; full history is still available]",
     )
 
     /**

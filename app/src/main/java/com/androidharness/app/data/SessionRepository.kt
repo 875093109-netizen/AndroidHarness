@@ -99,9 +99,38 @@ class SessionRepository(
     suspend fun historyFor(sessionId: String): Pair<String, List<ChatMessage>> {
         val session = db.dao().session(sessionId)
         val since = session?.compactionBefore ?: 0
-        val msgs = if (since > 0) db.dao().messagesSince(sessionId, since)
-        else db.dao().messages(sessionId)
-        return (session?.compactionSummary ?: "") to msgs.map { it.toChatMessageCached() }
+        val rows = if (since > 0) db.dao().messagesSince(sessionId, since) else db.dao().messages(sessionId)
+        val summary = session?.compactionSummary.orEmpty()
+        val messages = rows.map { it.toChatMessageCached() }
+        if (summary.isBlank()) return summary to messages
+        return summary to (listOf(com.androidharness.app.agent.ContextHygiene.summaryMessage(summary)) + messages.filterNot {
+            it.role == Role.SYSTEM && (it.text.startsWith(com.androidharness.app.agent.AgentEngine.COMPACTION_PREFIX) ||
+                it.text.startsWith(com.androidharness.app.agent.ContextHygiene.COMPACTION_NOTICE_PREFIX) || it.isError)
+        })
+    }
+
+    data class CompactionSnapshot(val messageIds: List<String>, val lastMessageAt: Long,
+        val summary: String, val before: Long, val history: List<ChatMessage>)
+
+    suspend fun compactionSnapshot(sessionId: String): CompactionSnapshot = db.withTransaction {
+        val session = requireNotNull(db.dao().session(sessionId)) { "This chat is no longer available." }
+        CompactionSnapshot(db.dao().messageIds(sessionId), db.dao().lastMessageAt(sessionId) ?: 0, session.compactionSummary, session.compactionBefore,
+            with(this) { historyFor(sessionId).second.withoutSubagentTurns() })
+    }
+
+    /** Commit only a complete summary of the same snapshot; never delete original messages. */
+    suspend fun commitCompaction(sessionId: String, summary: String, snapshot: CompactionSnapshot,
+        retainedMessageCount: Int = 0): Long = db.withTransaction {
+        require(summary.isNotBlank())
+        val current = requireNotNull(db.dao().session(sessionId)) { "This chat is no longer available." }
+        check(current.compactionSummary == snapshot.summary && current.compactionBefore == snapshot.before &&
+            db.dao().messageIds(sessionId) == snapshot.messageIds) { "The chat changed while summarizing. History was kept. Retry /compact." }
+        val recent = snapshot.history.filter { it.id != null }.takeLast(retainedMessageCount)
+        // Equal timestamps conservatively retain extra rows, including whole tool exchanges.
+        val before = recent.firstOrNull()?.createdAt ?: minOf(snapshot.lastMessageAt + 1, System.currentTimeMillis())
+        db.dao().setCompaction(sessionId, summary, before)
+        addMessage(sessionId, com.androidharness.app.agent.ContextHygiene.compactionNotice())
+        before
     }
 
     suspend fun session(id: String): SessionEntity? = db.dao().session(id)

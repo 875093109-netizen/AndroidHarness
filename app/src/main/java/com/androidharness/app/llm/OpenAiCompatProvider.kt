@@ -118,7 +118,7 @@ class OpenAiCompatProvider(
                         put("content", systemPrompt)
                     })
                 }
-                messages.forEach { add(serializeMessage(it)) }
+                CompatHistory.normalize(messages).forEach { add(serializeMessage(it)) }
             }
             if (tools.isNotEmpty()) {
                 putJsonArray("tools") {
@@ -155,9 +155,14 @@ class OpenAiCompatProvider(
             // session totals, so keep the LAST usage seen, final counts are
             // the authoritative ones, and emit exactly one Usage per request.
             var pendingUsage: StreamEvent.Usage? = null
-            ProviderFactory.sseJson(request, client).takeWhile { el ->
+            var completed = false
+            var doneSeen = false
+            var failed = false
+            ProviderFactory.sseJson(request, client, onDone = { completed = true }).takeWhile { el ->
                 val events = parseChunk(el, acc, indexToId)
                 events.forEach { event ->
+                    if (event is StreamEvent.Done) doneSeen = true
+                    if (event is StreamEvent.Failure) failed = true
                     if (event is StreamEvent.Usage) pendingUsage = event else emit(event)
                 }
                 // An in-band error terminates this attempt, just like a failed
@@ -173,6 +178,8 @@ class OpenAiCompatProvider(
                 leftover.size == 1 -> emit(StreamEvent.ToolCallReady(leftover.first()))
                 leftover.size > 1 -> emit(StreamEvent.ToolCallBatch(leftover))
             }
+            // [DONE] is an explicit completion even when a gateway omits finish_reason.
+            if (completed && !doneSeen && !failed) emit(StreamEvent.Done())
         }
     }
 

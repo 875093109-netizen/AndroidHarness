@@ -250,6 +250,12 @@ interface HarnessDao {
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC, rowid ASC")
     suspend fun messages(sessionId: String): List<MessageEntity>
 
+    @Query("SELECT id FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC, rowid ASC")
+    suspend fun messageIds(sessionId: String): List<String>
+
+    @Query("SELECT MAX(createdAt) FROM messages WHERE sessionId = :sessionId")
+    suspend fun lastMessageAt(sessionId: String): Long?
+
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND createdAt >= :since ORDER BY createdAt ASC, rowid ASC")
     suspend fun messagesSince(sessionId: String, since: Long): List<MessageEntity>
 

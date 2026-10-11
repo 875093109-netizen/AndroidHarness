@@ -353,7 +353,7 @@ class RunManager(
         RuntimeNotifier.update("Working…")
 
         val history = with(sessions) {
-            RunRecovery.context(messages(sid).withoutSubagentTurns(), record)
+            RunRecovery.context(historyFor(sid).second.withoutSubagentTurns(), record)
         }
         var end: RunFollowUps.End? = null
         val startSignal = CompletableDeferred<Unit>()
@@ -457,6 +457,7 @@ class RunManager(
                 live.update { it.copy(error = e.message ?: "Unexpected error") }
             } finally {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                compactionSnapshots.remove(sid)
                 flushJob?.cancel()
                 promptJob?.cancel()
                 val usage = budget.usage()
@@ -556,6 +557,8 @@ class RunManager(
         }
         return sid
     }
+
+    private val compactionSnapshots = java.util.concurrent.ConcurrentHashMap<String, SessionRepository.CompactionSnapshot>()
 
     private suspend fun handleEvent(sessionId: String, event: AgentEvent) {
         val live = stateOf(sessionId)
@@ -701,7 +704,11 @@ class RunManager(
                     catch (_: Exception) { /* The running task still records the actual account below. */ }
                 }
                 controls.update(sessionId) { it.copy(provider = event.config, usedProviderIds = it.usedProviderIds + event.config.id) }
-                sessions.addMessage(sessionId, ChatMessage(role = Role.SYSTEM, text = event.reason, turnId = turnId))
+                val noticeId = sessions.addMessage(sessionId, ChatMessage(role = Role.SYSTEM, text = event.reason, turnId = turnId))
+                compactionSnapshots[sessionId]?.let { snapshot ->
+                    // This known notification is not a conversation edit. Keep the original retention boundary.
+                    compactionSnapshots[sessionId] = snapshot.copy(messageIds = snapshot.messageIds + noticeId)
+                }
                 live.update { it.copy(retryStatus = event.reason) }
             }
 
@@ -716,20 +723,25 @@ class RunManager(
 
             is AgentEvent.EstimatedContext -> live.update { it.copy(estimate = event.estimate) }
             is AgentEvent.Compacting -> {
+                if (!compactionSnapshots.containsKey(sessionId)) compactionSnapshots[sessionId] = sessions.compactionSnapshot(sessionId)
                 RuntimeNotifier.update(event.reason)
                 live.update { it.copy(compactionNote = event.reason) }
             }
 
             is AgentEvent.Compacted -> {
-                controls.update(sessionId) { it.copy(summaryOverride = event.summary) }
+                val snapshot = requireNotNull(compactionSnapshots[sessionId])
+                val before = sessions.commitCompaction(sessionId, event.summary, snapshot, event.retainedMessageCount)
+                compactionSnapshots.remove(sessionId)
+                controls.update(sessionId) { it.copy(summaryOverride = event.summary, contextAfter = before) }
                 live.update { it.copy(compactionNote = null) }
-                sessions.setCompaction(sessionId, event.summary, System.currentTimeMillis())
-                sessions.addMessage(sessionId, ContextHygiene.summaryMessage(event.summary))
-                // A visible transcript line, so the fold is not silent.
-                sessions.addMessage(sessionId, ContextHygiene.compactionNotice())
             }
 
-            is AgentEvent.Error -> live.update { it.copy(error = event.message) }
+            is AgentEvent.Error -> {
+                if (compactionSnapshots.remove(sessionId) != null) {
+                    sessions.addMessage(sessionId, ChatMessage(role = Role.SYSTEM, text = event.message, isError = true))
+                }
+                live.update { it.copy(error = event.message, compactionNote = null) }
+            }
 
             is AgentEvent.SubagentStep -> live.update { st ->
                 st.copy(

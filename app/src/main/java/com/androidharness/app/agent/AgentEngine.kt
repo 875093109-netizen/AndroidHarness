@@ -141,7 +141,7 @@ sealed interface AgentEvent {
     data class Retrying(val attempt: Int, val delayMs: Long, val reason: String) : AgentEvent
     data class EstimatedContext(val estimate: ContextEstimate) : AgentEvent
     data class Compacting(val reason: String) : AgentEvent
-    data class Compacted(val summary: String) : AgentEvent
+    data class Compacted(val summary: String, val retainedMessageCount: Int = 0) : AgentEvent
     data class Error(val message: String, val recoverable: Boolean = false) : AgentEvent
 
     /** One progress line from inside a running subagent (the task tool). */
@@ -257,10 +257,8 @@ class AgentEngine(
             context = ToolContext(workspace = workspace, sessionId = sessionId),
         )
         val chatHistory = if (agentContextEnabled) history else com.androidharness.app.local.LocalChatCodec.plainChatMessages(history)
-        val working = (if (localChat) chatHistory.map { it.withImagesResolved() } else trimHistory(
-            ContextHygiene.shrinkToolResults(history.map { it.withImagesResolved() }),
-            maxContextTokens, options.maxOutputTokens,
-        )).toMutableList()
+        val working = (if (localChat) chatHistory else ContextHygiene.shrinkToolResults(chatHistory))
+            .map { it.withImagesResolved() }.toMutableList()
         // If active model is known to be text-only, strip image data upfront
         if (!localChat && !com.androidharness.app.llm.visionCapable(config.model)) {
             val sanitized = ContextHygiene.stripImages(working)
@@ -333,7 +331,8 @@ class AgentEngine(
                     if (it is AgentEvent.ProviderChanged) config = it.config
                     emit(it)
                 }
-                if (compacted != null) {
+                if (compacted == null) break
+                run {
                     working.clear()
                     working.addAll(compacted)
                     // The window just shrank: refresh the context panel now
@@ -1376,69 +1375,35 @@ class AgentEngine(
 
     /** Summarize old history into one message when the context is nearly full. */
     private suspend fun compact(
-        provider: LlmProvider,
-        config: ProviderConfig,
-        apiKey: String,
-        working: MutableList<ChatMessage>,
-        maxContextTokens: Int,
-        sessionId: String? = null,
-        emitEvent: suspend (AgentEvent) -> Unit,
+        provider: LlmProvider, config: ProviderConfig, apiKey: String,
+        working: List<ChatMessage>, maxContextTokens: Int, sessionId: String,
+        emit: suspend (AgentEvent) -> Unit,
     ): List<ChatMessage>? {
-        var config = config
-        emitEvent(AgentEvent.Compacting("Context near ${(maxContextTokens / 1000)}K. summarizing older messages"))
-
-        // keep the most recent messages; never start the kept slice on a TOOL message
-        var keep = 8
-        while (keep < working.size && working[working.size - keep].role == Role.TOOL) keep++
-        val keepCount = keep.coerceAtMost(working.size)
-        val older = working.subList(0, working.size - keepCount)
-        val recent = working.subList(working.size - keepCount, working.size)
-        if (older.isEmpty()) return null
-
-        val summary = StringBuilder()
-        val olderClean = ContextHygiene.stripImages(older)
-        val compactError = StreamRetrier.run(
-            streamFor = {
-                provider.streamChat(
-                    config, apiKey,
-                    "Summarize this coding-agent conversation compactly. Preserve: the user's goal, " +
-                        "files created/modified and their paths, key decisions, pending work and next steps. " +
-                        "Output plain notes only.",
-                    olderClean, emptyList(),
-                    RequestOptions(maxOutputTokens = 1_500, thinking = ThinkingLevel.OFF, cacheKey = sessionId),
-                )
-            },
-            onAttemptStart = { summary.clear() },
-            hasOutput = { summary.isNotBlank() },
-            handleEvent = { event ->
-                when (event) {
-                    is StreamEvent.ProviderChanged -> {
-                        config = event.config
-                        emitEvent(AgentEvent.ProviderChanged(event.config, event.reason))
-                    }
-                    is StreamEvent.TextDelta -> summary.append(event.text)
-                    is StreamEvent.Batch -> event.events.forEach { nested ->
-                        if (nested is StreamEvent.TextDelta) summary.append(nested.text)
-                    }
-                    is StreamEvent.Usage -> emitEvent(
-                        AgentEvent.Usage(
-                            event.inputTokens, event.outputTokens,
-                            event.cachedInputTokens, event.cacheWriteTokens,
-                            config.model, config.name, cacheReported = event.cacheReported,
-                                cachePrices = if (com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(config.id)) null else com.androidharness.app.llm.ModelsDev.exactCachePrices(config.baseUrl, config.model),
-                        )
-                    )
-                    else -> {}
-                }
-            },
-            retryReason = { f -> f.take(200) },
-            emitEvent = { emitEvent(it) },
-        )
-        compactError?.let { emitEvent(AgentEvent.Error("Auto-compaction failed: $it")) }
-        if (summary.isBlank()) return null
-
-        emitEvent(AgentEvent.Compacted(summary.toString()))
-        return listOf(ContextHygiene.summaryMessage(summary.toString())) + recent
+        var keepCount = minOf(8, working.size)
+        while (keepCount < working.size && working[working.size - keepCount].role == Role.TOOL) keepCount++
+        val older = working.dropLast(keepCount)
+        if (older.isEmpty()) {
+            emit(AgentEvent.Error("This chat is too large for the selected model. Run /compact or choose a model with a larger context."))
+            return null
+        }
+        emit(AgentEvent.Compacting("Summarizing earlier messages…"))
+        return try {
+            val summary = HistoryCompactor.summarize(provider, config, apiKey, older, maxContextTokens, sessionId,
+                progress = { emit(AgentEvent.Compacting(it)) },
+                event = { event, cfg -> when (event) {
+                    is StreamEvent.ProviderChanged -> emit(AgentEvent.ProviderChanged(event.config, event.reason))
+                    is StreamEvent.Usage -> emit(AgentEvent.Usage(event.inputTokens, event.outputTokens, event.cachedInputTokens,
+                        event.cacheWriteTokens, cfg.model, cfg.name, event.cacheReported, com.androidharness.app.llm.ModelsDev.exactCachePrices(cfg.baseUrl, cfg.model)))
+                    else -> Unit
+                } })
+            emit(AgentEvent.Compacted(summary, keepCount))
+            listOf(ContextHygiene.summaryMessage(summary)) + working.takeLast(keepCount)
+        } catch (e: CancellationException) { throw e }
+        catch (e: TaskPaused) { throw e }
+        catch (e: Exception) {
+            emit(AgentEvent.Error("Compaction failed: ${e.message}. History was kept. Retry /compact or choose another model."))
+            null
+        }
     }
 
     /**
@@ -1458,27 +1423,6 @@ class AgentEngine(
             cutOff -> "Model hit the token limit before producing output."
             else -> "Model returned no output at all: the model may be down, rate-limited, or incompatible."
         }
-    }
-
-    private fun trimHistory(
-        history: List<ChatMessage>,
-        maxContextTokens: Int,
-        maxOutputTokens: Int,
-    ): List<ChatMessage> {
-        // reserve space for system prompt, tool schemas and the model's reply
-        val budgetChars = (maxContextTokens - maxOutputTokens - 8_192) * 4
-        if (budgetChars <= 0) return history.takeLast(2)
-        var total = history.sumOf { it.text.length }
-        if (total <= budgetChars) return history
-        val kept = history.toMutableList()
-        while (total > budgetChars && kept.size > 2) {
-            val removed = kept.removeAt(0)
-            total -= removed.text.length
-            while (kept.firstOrNull()?.role == Role.TOOL && kept.size > 2) {
-                total -= kept.removeAt(0).text.length
-            }
-        }
-        return kept
     }
 
     private fun estimateContext(

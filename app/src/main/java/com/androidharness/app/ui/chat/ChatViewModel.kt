@@ -331,6 +331,7 @@ class ChatViewModel(
     )
 
     private var heldStream: HeldStream? = null
+    private var compactionJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch {
@@ -572,7 +573,7 @@ class ChatViewModel(
                 heldStream = null
             }
             st.copy(
-                busy = live.running,
+                busy = live.running || compactionJob?.isActive == true,
                 streamingText = streamingText,
                 streamingThinking = streamingThinking,
                 streamingMessageId = streamingMessageId,
@@ -589,7 +590,7 @@ class ChatViewModel(
                 queuedMessage = live.queuedMessage,
                 pendingPlan = live.pendingPlan,
                 estimate = live.estimate,
-                compactionNote = live.compactionNote,
+                compactionNote = if (compactionJob?.isActive == true) st.compactionNote else live.compactionNote,
                 error = live.error ?: st.error,
             ).withCurrentAction()
         }
@@ -693,6 +694,10 @@ class ChatViewModel(
 
     /** True when the composer can consume the draft, including local commands and queued messages. */
     fun send(rawText: String): Boolean {
+        if (compactionJob?.isActive == true) {
+            _state.update { it.copy(error = "Wait for compaction to finish, or stop it before sending a message.") }
+            return false
+        }
         val trimmed = rawText.trim()
         // File-only sends are legitimate: the attachments carry the message.
         if (trimmed.isEmpty() && _state.value.fileAttachments.isEmpty()) return false
@@ -714,7 +719,11 @@ class ChatViewModel(
                 return true
             }
             SlashCommands.Kind.COMPACT -> {
-                viewModelScope.launch { forceCompact() }
+                if (_state.value.busy || startingRun) {
+                    _state.update { it.copy(error = "Stop the current task before compacting this chat.") }
+                    return false
+                }
+                compactionJob = viewModelScope.launch { forceCompact() }
                 return true
             }
             SlashCommands.Kind.COST -> {
@@ -817,7 +826,7 @@ class ChatViewModel(
 
     fun resumeInterruptedTask() {
         val sid = sessionId ?: return
-        if (steering || c.runManager.isRunning(sid)) return
+        if (steering || compactionJob?.isActive == true || c.runManager.isRunning(sid)) return
         steering = true
         viewModelScope.launch {
             try { resumeTaskNow(sid) }
@@ -839,7 +848,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val sid = ensureSession()
-                check(!c.runManager.isRunning(sid)) { "Pause the task before changing context or limits" }
+                check(!c.runManager.isRunning(sid) && compactionJob?.isActive != true) { "Stop the task or compaction before changing context or limits" }
                 val cutoff = if (clearOlder) {
                     // Keep the latest user turn and all of its assistant/tool messages together.
                     c.sessions.messages(sid).lastOrNull { it.role == Role.USER }?.createdAt ?: 0
@@ -1053,7 +1062,7 @@ class ChatViewModel(
     // ------------------------------------------------------------------
 
     private fun startRun(text: String, workspaceMcpGate: Boolean = true, queuedPromptId: String? = null, replacement: ChatMessage? = null): Boolean {
-        if (startingRun) return false
+        if (startingRun || compactionJob?.isActive == true) return false
         val targetSession = sessionId
         val s0 = _state.value
         if (!s0.modelSelectionReady || s0.modelSelectionBusy) {
@@ -1264,6 +1273,7 @@ class ChatViewModel(
     }
 
     fun stop() {
+        compactionJob?.cancel()
         val sid = sessionId ?: return
         c.runManager.stop(sid)
     }
@@ -1537,72 +1547,69 @@ class ChatViewModel(
     private suspend fun refreshCheckpoints(sessionId: String): Set<String> =
         runCatching { c.checkpoints.turnsWithCheckpoints(sessionId) }.getOrDefault(emptySet())
 
+    private suspend fun saveCompactionNotice(sid: String, message: ChatMessage) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
+            // A deleted chat or unavailable storage must not turn recovery into an uncaught UI exception.
+            try { c.sessions.addMessage(sid, message) } catch (_: Exception) { }
+        }
+    }
+
     private suspend fun forceCompact() {
         val sid = sessionId ?: return
         val current = _state.value
         if (!current.modelSelectionReady || current.modelSelectionBusy || current.modelSelectionError != null) {
-            _state.update { it.copy(error = current.modelSelectionError ?: "Wait for the model selection to finish saving.") }
+            _state.update { it.copy(error = current.modelSelectionError ?: "Choose a model before compacting this chat.") }
             return
         }
         val provider = current.activeProvider?.let { it.copy(model = current.effectiveModel ?: it.model) } ?: return
-        val apiKey = if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) c.providers.harnessApiKey()
-        else provider.effectiveApiKey(c.providers.apiKey(provider.id)).takeIf { it.isNotBlank() } ?: return
-        // Trigger compaction by temporarily pretending the context is full:
-        // Simplest correct approach, ask the engine for a summary of all history.
-        // Subagent inner turns are excluded (same rule as new runs).
-        val history = with(c.sessions) { historyFor(sid).second.withoutSubagentTurns() }
-        if (history.size < 4) {
-            _state.update { it.copy(error = "Not enough history to compact.") }
-            return
-        }
-        _state.update { it.copy(busy = true, compactionNote = "Compacting conversation…") }
-        c.runManager.acquireKeepalive()
+        _state.update { it.copy(busy = true, error = null, compactionNote = "Preparing chat summary…") }
+        var keepalive = false
+        var committed = false
         try {
-            val summary = StringBuilder()
-            com.androidharness.app.llm.ProviderFactory.create(provider).streamChat(
-                provider, apiKey,
-                "Summarize this coding-agent conversation compactly. Preserve: the user's goal, " +
-                    "files created/modified and their paths, key decisions, pending work and next steps. " +
-                    "Output plain notes only.",
-                history, emptyList(),
-                RequestOptions(maxOutputTokens = 1_500, thinking = ThinkingLevel.OFF, cacheKey = sid),
-            ).collect { ev ->
-                when (ev) {
-                    is com.androidharness.app.llm.StreamEvent.TextDelta -> summary.append(ev.text)
-                    is com.androidharness.app.llm.StreamEvent.Batch -> ev.events.forEach { nested ->
-                        if (nested is com.androidharness.app.llm.StreamEvent.TextDelta) {
-                            summary.append(nested.text)
+            c.runManager.acquireKeepalive()
+            keepalive = true
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val key = if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) c.providers.harnessApiKey()
+                    else provider.effectiveApiKey(c.providers.apiKey(provider.id))
+                check(key.isNotBlank()) { "Add this provider's API key before compacting." }
+                val snapshot = c.sessions.compactionSnapshot(sid)
+                check(snapshot.history.size >= 4) { "There are too few messages to compact yet." }
+                val summary = com.androidharness.app.agent.HistoryCompactor.summarize(
+                    com.androidharness.app.llm.ProviderFactory.create(provider), provider, key, com.androidharness.app.agent.RunRecovery.context(snapshot.history, c.runManager.controls.flow(sid).value),
+                    current.maxContextTokens, sid,
+                    progress = { note -> if (sessionId == sid) _state.update { it.copy(compactionNote = note) } },
+                    event = { event, cfg -> when (event) {
+                        is com.androidharness.app.llm.StreamEvent.Usage -> {
+                            c.sessions.addUsage(sid, event.inputTokens.toLong(), event.outputTokens.toLong(),
+                                event.cachedInputTokens.toLong(), event.cacheWriteTokens.toLong())
+                            c.sessions.recordUsage(sid, cfg.name, cfg.model, event.inputTokens.toLong(), event.outputTokens.toLong(),
+                                event.cachedInputTokens.toLong(), event.cacheWriteTokens.toLong(),
+                                cacheReported = event.cacheReported, cachePrices = com.androidharness.app.llm.ModelsDev.exactCachePrices(cfg.baseUrl, cfg.model))
                         }
-                    }
-                    else -> {}
-                }
+                        // Keep the snapshot unchanged until its summary is committed.
+                        is com.androidharness.app.llm.StreamEvent.ProviderChanged -> c.chatModels.providerChanged(sid, provider, event.config)
+                        else -> Unit
+                    } })
+                val before = c.sessions.commitCompaction(sid, summary, snapshot)
+                committed = true
+                c.runManager.controls.update(sid) { it.copy(summaryOverride = summary, contextAfter = before) }
+                val fresh = c.engine.estimateFor(com.androidharness.app.agent.ContextHygiene.forModel(
+                    c.sessions.historyFor(sid).second), chatWorkspace(), current.mode,
+                    current.permissionMode == PermissionMode.FULL_ACCESS)
+                if (sessionId == sid) _state.update { it.copy(estimate = fresh) }
             }
-            if (summary.isNotBlank()) {
-                c.sessions.setCompaction(sid, summary.toString(), System.currentTimeMillis())
-                c.sessions.addMessage(
-                    sid,
-                    com.androidharness.app.agent.ContextHygiene.summaryMessage(summary.toString()),
-                )
-                c.sessions.addMessage(sid, com.androidharness.app.agent.ContextHygiene.compactionNotice())
-                // Refresh the context panel now: usage.lastInput still carries
-                // the pre-compact request size until the next real request.
-                val fresh = c.engine.estimateFor(
-                    com.androidharness.app.agent.ContextHygiene.forModel(
-                        with(c.sessions) { historyFor(sid).second.withoutSubagentTurns() },
-                    ),
-                    chatWorkspace(),
-                    _state.value.mode,
-                    _state.value.permissionMode == PermissionMode.FULL_ACCESS,
-                )
-                _state.update { it.copy(estimate = fresh) }
-            }
-        } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (!committed) saveCompactionNotice(sid, ChatMessage(role = Role.SYSTEM,
+                text = "Compaction stopped. History was kept. Retry /compact when ready."))
+            throw e
         } catch (e: Exception) {
-            _state.update { it.copy(error = e.message ?: "Compaction failed") }
+            val message = if (committed) "Chat compacted, but its task settings or context estimate could not refresh: ${e.message}"
+                else "Compaction failed: ${e.message}. History was kept. Retry /compact or choose another model."
+            if (sessionId == sid) _state.update { it.copy(error = message) }
+            saveCompactionNotice(sid, ChatMessage(role = Role.SYSTEM, text = message, isError = true))
         } finally {
-            _state.update { it.copy(busy = false, compactionNote = null) }
-            c.runManager.releaseKeepalive()
+            if (sessionId == sid) _state.update { it.copy(busy = false, compactionNote = null) }
+            if (keepalive) c.runManager.releaseKeepalive()
         }
     }
 

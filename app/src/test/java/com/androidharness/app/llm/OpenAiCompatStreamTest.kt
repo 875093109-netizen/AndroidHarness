@@ -48,6 +48,11 @@ class OpenAiCompatStreamTest {
         emptyList(), RequestOptions(),
     )
 
+    @Test fun `done sentinel completes text without a finish reason`() = runBlocking {
+        val events = stream(provider(listOf("""{"choices":[{"delta":{"content":"complete summary"}}]}"""))).toList()
+        assertEquals(listOf(StreamEvent.TextDelta("complete summary"), StreamEvent.Done()), events)
+    }
+
     @Test
     fun `continued conversation accepts object tool arguments from a compat gateway`() = runBlocking {
         val provider = provider(listOf(

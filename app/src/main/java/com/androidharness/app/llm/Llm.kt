@@ -172,7 +172,7 @@ object ProviderFactory {
      * emitting the JSON payload of each `data:` line. Cancellation of the
      * collector cancels the underlying HTTP call.
      */
-    fun sseJson(request: Request, httpClient: OkHttpClient = client): Flow<JsonElement> = callbackFlow {
+    fun sseJson(request: Request, httpClient: OkHttpClient = client, onDone: () -> Unit = {}): Flow<JsonElement> = callbackFlow {
         val call = httpClient.newCall(request)
         val reader = launch(Dispatchers.IO) {
             try {
@@ -198,7 +198,7 @@ object ProviderFactory {
                         val line = readSseLine(source) ?: break
                         if (!line.startsWith("data:")) continue
                         val payload = line.removePrefix("data:").trim()
-                        if (payload == "[DONE]") break
+                        if (payload == "[DONE]") { onDone(); break }
                         if (payload.isEmpty()) continue
                         try {
                             send(json.parseToJsonElement(payload))
