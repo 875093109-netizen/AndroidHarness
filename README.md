@@ -4,7 +4,7 @@
 <a href="https://buymeacoffee.com/sanuj7"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="72"></a>
 
 [![Debug build](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml/badge.svg)](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml)
-[![Version](https://img.shields.io/badge/version-1.8-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.9-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3ddc84)](https://developer.android.com/about/versions/oreo)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -50,6 +50,8 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 - Fork any assistant turn into a fresh session with cloned context.
 - The last active chat resumes automatically on launch behind shimmering skeleton loading.
 - Each chat keeps its assigned workspace. Choose it from Files or the sidebar; other chats and their running tasks stay in their own projects.
+- **Projects.** The sidebar's Projects screen lists every workspace with its chat count, and each project opens a screen that gathers its chats, its automations, its repository and its memory in one place, with a details dialog for renaming. Adding a workspace there never takes over the workspace your open chat is using, and a chat started from a project belongs to it.
+- **Project memory.** Chats in a project share one notes file, edited from the project screen and counted against the same limit the agent uses. Saving compares against the version you loaded, so a draft written while the agent was updating the notes is refused with a reload prompt instead of overwriting newer work, and saving waits while a task is running in that workspace.
 - Message queue for follow-ups, with edit, reorder, remove, and Send now. The queue persists across app restarts, each message starts after that chat's successful Run finished notification, and interruptions keep it waiting.
 - Long-press your own message for Retry, Copy, and Edit. Retry resends it as a fresh turn.
 - The agent can ask you something mid-run, and you can answer from the notification shade or the chat.
@@ -122,6 +124,7 @@ A shell policy and a secret redactor keep the agent from escaping the workspace,
 - Interrupted tasks come back as a Resume card. Tool results are saved before the next action, completed writes are not replayed on recovery, and uncertain operations ask you to inspect the current state.
 - Optional Auto-continue (Context & limits → Recovery) resumes after server or connection interruptions with the same Resume task prompt. It is off by default, with a per-task retry limit of 1 to 5 (default 3). User stops, task limits, and permanent errors still require manual attention.
 - Context & limits lets you edit the saved summary, pin instructions, and remove older model context while retaining the visible chat.
+- Compaction never deletes messages. When a context nears its limit it summarizes a snapshot of the older conversation into a hidden note and commits only if the chat has not changed meanwhile; if anything moved, the summary is refused and your history is kept. /compact can be stopped, a failure is saved in the chat as a card with Details and Retry, and a context that is too large for the model says so instead of quietly dropping the oldest messages.
 - Optional task-wide limits for tokens, estimated USD cost, and active time, including subagents and compaction. Tasks pause at request or action boundaries with progress saved, in-flight work can exceed a limit, and a reached limit is raised before resuming.
 - Approve or deny sensitive actions from the notification shade, with four permission modes up to a full access mode that lifts every sandbox for workspaces you trust.
 - Review and revoke every remembered tool permission individually in their own settings section.
@@ -136,6 +139,7 @@ A shell policy and a secret redactor keep the agent from escaping the workspace,
 - Live model catalog fetch with latency check, per-model price tracking, and a running cost readout, plus a total estimated cost hero on the Stats screen. Stats windows (Today, 1 week, 1 month, Lifetime) count requests by the day they were made on your local calendar, so continuing an old chat never moves earlier work into today.
 - One global thinking ladder from Off to Ultra on every model. Non-native rungs resolve down the chain at request time, never rewriting your pick.
 - Per-chat dual planning: a chat menu toggle that runs Plan mode on one model and execution on another, each picked from the same model sheet, with a toast confirming which model fired and a plan card that survives app restarts.
+- Per-chat models: one choice for every chat is the default, as before. Turn off Use the same model in every chat in the picker and each chat remembers its own provider and model for the active, planning and execution roles plus its own thinking level, labelled This chat in the header. Model IDs are saved with the chat, so editing a provider's default later cannot change an older chat, and a chat whose provider or model is gone asks you to pick again instead of sending the request somewhere else.
 
 ### Local models (offline AI)
 

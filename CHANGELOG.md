@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.9 (2026-10-11)
+
+### Added
+
+- **Projects**: turn a workspace into a project you can open from the sidebar. The Projects screen lists every workspace with its chat count, and each project gets its own screen with a Chats tab (open a chat or start a new one that belongs to the project) and an Automations tab (the project's schedules, with Run, edit and Add automation already pointed at it), plus its repository and a details dialog where you can rename it. Adding a project from the Projects screen no longer takes over the workspace you are working in, so browsing and adding workspaces stops changing what the current chat uses. Automations opened from a project stay filtered to that project, and a project's run history shows only its own runs.
+- **Project memory**: every chat in a project shares one notes file. The memory screen reads and edits it, counts characters against the same limit the agent uses, and keeps Clear explicit. Saving compares against the version you loaded, so a draft written while the agent was updating the notes is refused with a reload prompt instead of overwriting newer work, and saving waits while a task is running in that workspace.
+- **Per-chat model choice**: a new switch in the model picker, "Use the same model in every chat", is on by default and keeps the current behaviour. Turn it off and each chat remembers its own provider and model for the active, planning and execution slots plus its own thinking level, with a "This chat" label in the header while you are in per-chat mode. Choices are saved as concrete model IDs, so editing a provider's default model later cannot change an existing chat, and a chat whose provider or model was removed asks you to pick again instead of quietly sending the request somewhere else. Backups and forked chats carry the choice, and the ChatGPT account switch at a usage limit only rewrites the selection that still matches the running request.
+- **Donate**: the chat empty state adds a Donate row that opens Buy Me a Coffee, with a fallback message for devices without a browser.
+
+### Changed
+
+- **The model picker scrolls as one list**: the scope switch, current model, search box, filters, model list and the manage-providers row are now a single scrolling sheet, so every control stays reachable in landscape and with large text.
+- **Compaction never deletes messages**: automatic and manual compaction take a snapshot, summarize it in bounded chunks (splitting long transcripts, merging partial summaries, retrying a stalled stream), and commit only if the chat has not changed in the meantime. If anything moved while summarizing, the summary is refused and your history is kept. Original messages are never removed; the hidden note and the cutoff only decide what is sent to the model. /compact can be stopped, sending is blocked while it runs, the summary request is counted in usage like any other request, and a failure is saved in the chat as a card with Details and Retry instead of a snackbar that disappears.
+- **A nearly full chat summarizes instead of dropping messages**: the old behaviour quietly discarded the oldest part of the conversation before a request. That trimming is gone, so a context near its limit attempts a real summary, and if there is nothing left to summarize the chat says it is too large for the selected model and points at /compact or a model with a larger context.
+
+### Fixed
+
+- **Interrupted tool exchanges no longer break a request**: a history where an assistant tool call has no matching result (a stopped or crashed run, or an imported chat) is repaired for the request only, leaving the saved messages untouched. The call and whatever outcomes were recorded become a text note in the assistant message, orphan results become user messages, and the agent is told to check the current state before repeating anything.
+- **`[DONE]` completes a stream**: gateways that end a response with the `[DONE]` sentinel but no finish reason no longer produce an "ended before completion" error, which also stops compaction from failing on an otherwise good summary.
+- **Drafts survive a rotation or a recreation**: the composer text, the automation editor's fields and its AI conversation, and the project screens' open tab are saved and restored instead of being reset.
+
 ## 1.8 (2026-10-11)
 
 ### Added
