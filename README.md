@@ -1,12 +1,12 @@
 # AndroidHarness
 
 <a href="https://play.google.com/store/apps/details?id=com.androidharness.app"><img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="72"></a>
+<a href="https://buymeacoffee.com/sanuj7"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="72"></a>
 
 [![Debug build](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml/badge.svg)](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml)
 [![Version](https://img.shields.io/badge/version-1.8-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3ddc84)](https://developer.android.com/about/versions/oreo)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Help_us_keep_building-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/sanuj7)
 
 **An AI coding agent that lives on your Android phone.**
 
