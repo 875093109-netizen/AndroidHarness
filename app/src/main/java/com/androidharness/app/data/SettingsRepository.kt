@@ -44,6 +44,8 @@ data class AppSettings(
      * provider entry's saved default model.
      */
     val activeModel: String? = null,
+    /** On keeps the existing shared picker; off restores each chat's saved models. */
+    val sameModelAcrossChats: Boolean = true,
     /** Skill names hidden from the catalog and slash picker. */
     val disabledSkills: Set<String> = emptySet(),
     /** web_search backend: "keyless" (default) | "brave" | "tavily". */
@@ -119,6 +121,7 @@ class SettingsRepository(private val context: Context) {
         val ARCHIVED = stringSetPreferencesKey("archived_sessions")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         val ACTIVE_MODEL = stringPreferencesKey("active_model")
+        val SAME_MODEL_ACROSS_CHATS = booleanPreferencesKey("same_model_across_chats")
         val DISABLED_SKILLS = stringSetPreferencesKey("disabled_skills")
         val WEB_SEARCH_PROVIDER = stringPreferencesKey("web_search_provider")
         val ALLOW_SCREENSHOTS = booleanPreferencesKey("allow_screenshots")
@@ -165,6 +168,7 @@ class SettingsRepository(private val context: Context) {
             archivedSessions = prefs[Keys.ARCHIVED] ?: emptySet(),
             onboardingDone = prefs[Keys.ONBOARDING_DONE] ?: false,
             activeModel = prefs[Keys.ACTIVE_MODEL],
+            sameModelAcrossChats = prefs[Keys.SAME_MODEL_ACROSS_CHATS] ?: true,
             disabledSkills = prefs[Keys.DISABLED_SKILLS] ?: emptySet(),
             webSearchProvider = prefs[Keys.WEB_SEARCH_PROVIDER]
                 ?.takeIf { it in WEB_SEARCH_PROVIDERS }
@@ -217,6 +221,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.CAVEMAN_INTENSITY] = s.cavemanIntensity.name
             p[Keys.CAVEMAN_WENYAN] = s.cavemanWenyan
             p[Keys.PLANNING_MODELS_ENABLED] = s.planningModelsEnabled
+            p[Keys.SAME_MODEL_ACROSS_CHATS] = s.sameModelAcrossChats
             listOf(Keys.ACTIVE_PROVIDER to s.activeProviderId, Keys.ACTIVE_MODEL to s.activeModel,
                 Keys.PLANNING_PROVIDER to s.planningProviderId, Keys.PLANNING_MODEL to s.planningModel,
                 Keys.EXECUTION_PROVIDER to s.executionProviderId, Keys.EXECUTION_MODEL to s.executionModel,
@@ -320,17 +325,30 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setActiveSelection(providerId: String, model: String) {
+    suspend fun setActiveSelection(providerId: String, model: String?) {
         context.settingsStore.edit { prefs ->
             prefs[Keys.ACTIVE_PROVIDER] = providerId
-            prefs[Keys.ACTIVE_MODEL] = model
+            if (model.isNullOrBlank()) prefs.remove(Keys.ACTIVE_MODEL) else prefs[Keys.ACTIVE_MODEL] = model
+        }
+    }
+
+    suspend fun setModelSelectionScope(shared: Boolean, selection: ChatModelSelection? = null) {
+        context.settingsStore.edit { prefs ->
+            if (selection != null) {
+                listOf(Keys.ACTIVE_PROVIDER to selection.active?.providerId, Keys.ACTIVE_MODEL to selection.active?.model,
+                    Keys.PLANNING_PROVIDER to selection.planning?.providerId, Keys.PLANNING_MODEL to selection.planning?.model,
+                    Keys.EXECUTION_PROVIDER to selection.execution?.providerId, Keys.EXECUTION_MODEL to selection.execution?.model
+                ).forEach { (key, value) -> if (value == null) prefs.remove(key) else prefs[key] = value }
+                prefs[Keys.THINKING_LEVEL] = selection.thinking.name
+            }
+            prefs[Keys.SAME_MODEL_ACROSS_CHATS] = shared
         }
     }
 
     /** A background switch must not overwrite a newer choice made in the model picker. */
     suspend fun switchActiveSelection(from: com.androidharness.app.llm.ProviderConfig, to: com.androidharness.app.llm.ProviderConfig) {
         context.settingsStore.edit { prefs ->
-            if (prefs[Keys.ACTIVE_PROVIDER] == from.id && (prefs[Keys.ACTIVE_MODEL] == null || prefs[Keys.ACTIVE_MODEL] == from.model)) {
+            if ((prefs[Keys.SAME_MODEL_ACROSS_CHATS] ?: true) && prefs[Keys.ACTIVE_PROVIDER] == from.id && (prefs[Keys.ACTIVE_MODEL] == null || prefs[Keys.ACTIVE_MODEL] == from.model)) {
                 prefs[Keys.ACTIVE_PROVIDER] = to.id
                 prefs[Keys.ACTIVE_MODEL] = to.model
             }

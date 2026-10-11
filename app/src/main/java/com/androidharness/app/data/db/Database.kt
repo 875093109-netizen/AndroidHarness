@@ -32,6 +32,7 @@ data class SessionEntity(
     val compactionBefore: Long = 0,
     /** Plan awaiting user approval; survives process death so the card reappears. */
     val pendingPlan: String? = null,
+    val modelSelectionJson: String? = null,
 )
 
 @Entity(tableName = "messages", indices = [Index("sessionId")])
@@ -196,6 +197,9 @@ interface HarnessDao {
 
     @Query("SELECT * FROM sessions WHERE id = :id")
     fun sessionFlow(id: String): Flow<SessionEntity?>
+
+    @Query("UPDATE sessions SET modelSelectionJson = :selection WHERE id = :id")
+    suspend fun setModelSelection(id: String, selection: String)
 
     @Query("UPDATE sessions SET projectId = :projectId WHERE id = :id")
     suspend fun setSessionProject(id: String, projectId: String)
@@ -435,13 +439,19 @@ interface HarnessDao {
         SessionFileChangeEntity::class,
         MessageFtsEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): HarnessDao
 
     companion object {
+        val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN modelSelectionJson TEXT")
+            }
+        }
+
         val MIGRATION_13_14 = object : androidx.room.migration.Migration(13, 14) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN firstTokenMs INTEGER NOT NULL DEFAULT 0")

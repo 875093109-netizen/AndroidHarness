@@ -93,6 +93,7 @@ internal fun MainHeader(
     onOpenGitHub: () -> Unit,
     canOpenGitHub: Boolean = true,
     onOpenWebPreview: () -> Unit = {},
+    modelScopeLabel: String? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     var thinkingMenu by remember { mutableStateOf(false) }
@@ -128,7 +129,7 @@ internal fun MainHeader(
                             Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.titleMediumEmphasized)
                         }
-                        if (!stackedControls) HeaderModelPicker(pickerLabel, onPickModel)
+                        if (!stackedControls) HeaderModelPicker(pickerLabel, onPickModel, scopeLabel = modelScopeLabel)
                     }
 
                     AnimatedVisibility(
@@ -306,7 +307,7 @@ internal fun MainHeader(
                         Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        HeaderModelPicker(pickerLabel, onPickModel, Modifier.weight(1f))
+                        HeaderModelPicker(pickerLabel, onPickModel, Modifier.weight(1f), scopeLabel = modelScopeLabel)
                         if (thinkingLevels.isNotEmpty()) {
                             Spacer(Modifier.width(8.dp))
                             HeaderThinkingControl(thinkingLevel, thinkingLevels, thinkingMenu,
@@ -321,16 +322,19 @@ internal fun MainHeader(
 }
 
 @Composable
-private fun HeaderModelPicker(label: String, onPickModel: () -> Unit, modifier: Modifier = Modifier) {
+private fun HeaderModelPicker(label: String, onPickModel: () -> Unit, modifier: Modifier = Modifier, scopeLabel: String? = null) {
     Row(
         modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onPickModel)
             .heightIn(min = 36.dp).padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f, fill = false))
+        Column(Modifier.weight(1f, fill = false)) {
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            scopeLabel?.let { Text(it, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary) }
+        }
         Spacer(Modifier.width(4.dp))
         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Switch model",
             tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))

@@ -106,6 +106,20 @@ class SessionRepository(
 
     suspend fun session(id: String): SessionEntity? = db.dao().session(id)
 
+    fun sessionFlow(id: String): Flow<SessionEntity?> = db.dao().sessionFlow(id)
+
+    suspend fun initializeModelSelection(id: String, initial: ChatModelSelection): ChatModelSelection = db.withTransaction {
+        val session = requireNotNull(db.dao().session(id)) { "This chat is no longer available." }
+        ChatModelSelection.decode(session.modelSelectionJson) ?: initial.also {
+            db.dao().setModelSelection(id, ChatModelSelection.encode(it))
+        }
+    }
+
+    suspend fun saveModelSelection(id: String, selection: ChatModelSelection) = db.withTransaction {
+        requireNotNull(db.dao().session(id)) { "This chat is no longer available." }
+        db.dao().setModelSelection(id, ChatModelSelection.encode(selection))
+    }
+
     suspend fun createSession(title: String, projectId: String? = null): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -238,6 +252,7 @@ class SessionRepository(
                 requestCount = parent.requestCount,
                 lastInputTokens = parent.lastInputTokens,
                 projectId = parent.projectId,
+                modelSelectionJson = parent.modelSelectionJson,
                 compactionSummary = finalSummary,
                 compactionBefore = if (finalSummary.isNotBlank()) now else 0L,
             )

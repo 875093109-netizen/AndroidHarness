@@ -133,6 +133,10 @@ data class ChatUiState(
     val sessionModelUsage: List<com.androidharness.app.data.db.ModelUsagePojo> = emptyList(),
     /** Model override picked from the active provider's catalog. */
     val activeModel: String? = null,
+    val sameModelAcrossChats: Boolean = true,
+    val modelSelectionReady: Boolean = false,
+    val modelSelectionBusy: Boolean = false,
+    val modelSelectionError: String? = null,
     /** Separate-model-per-mode settings, mirrored from AppSettings. */
     val planningModelsEnabled: Boolean = false,
     val dualPlanning: Boolean = false,
@@ -176,9 +180,11 @@ data class ChatUiState(
     val activeProvider: ProviderConfig?
         get() = when {
             dualPlanning && mode == AgentMode.PLAN && planningProviderId != null ->
-                providers.firstOrNull { it.id == planningProviderId } ?: providers.firstOrNull { it.id == activeProviderId }
+                providers.firstOrNull { it.id == planningProviderId }
+                    ?: if (sameModelAcrossChats) providers.firstOrNull { it.id == activeProviderId } else null
             dualPlanning && mode == AgentMode.ACT && executionProviderId != null ->
-                providers.firstOrNull { it.id == executionProviderId } ?: providers.firstOrNull { it.id == activeProviderId }
+                providers.firstOrNull { it.id == executionProviderId }
+                    ?: if (sameModelAcrossChats) providers.firstOrNull { it.id == activeProviderId } else null
             else -> providers.firstOrNull { it.id == activeProviderId }
         }
 
@@ -259,6 +265,7 @@ class ChatViewModel(
 
     private suspend fun ensureSession(title: String = "New chat"): String = sessionCreation.withLock {
         sessionId ?: c.sessions.createSession(title, c.workspace.currentProjectOnce().id).also { sid ->
+            c.chatModels.initialize(sid)
             sessionId = sid
             sessionIdFlow.value = sid
             _state.update { it.copy(sessionId = sid, sessionTitle = title) }
@@ -327,32 +334,7 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch {
-            combine(c.settings.settings, c.providers.providers) { s, p -> s to p }
-                .collect { (settings, providers) ->
-                    _state.update {
-                        it.copy(
-                            permissionMode = settings.permissionMode,
-                            thinkingLevel = settings.thinkingLevel,
-                            maxContextTokens = settings.maxContextTokens,
-                            maxOutputTokens = settings.maxOutputTokens,
-                            maxIterations = settings.maxIterations,
-                            providers = providers,
-                            activeProviderId = settings.activeProviderId
-                                ?: providers.firstOrNull()?.id,
-                            activeModel = settings.activeModel,
-                            planningModelsEnabled = settings.planningModelsEnabled,
-                            planningProviderId = settings.planningProviderId,
-                            planningModel = settings.planningModel,
-                            executionProviderId = settings.executionProviderId,
-                            executionModel = settings.executionModel,
-                            planningModelsPromoSeen = settings.planningModelsPromoSeen,
-                            forkPromoSeen = settings.forkPromoSeen,
-                            voiceEngine = settings.voiceEngine,
-                            groqWhisperModel = settings.groqWhisperModel,
-                            voicePromoSeen = settings.voicePromoSeen,
-                        )
-                    }
-                }
+            sessionIdFlow.flatMapLatest(c.chatModels::observe).collect(::applyModelState)
         }
         viewModelScope.launch {
             c.providers.catalogs.collect { catalogs ->
@@ -631,6 +613,51 @@ class ChatViewModel(
 
     private fun ChatUiState.withCurrentAction(): ChatUiState = copy(currentAction = computeCurrentAction())
 
+    private fun applyModelState(models: com.androidharness.app.data.ChatModelState) {
+        val settings = models.settings
+        val selection = models.selection
+        _state.update { it.copy(
+            permissionMode = settings.permissionMode,
+            thinkingLevel = selection.thinking,
+            maxContextTokens = settings.maxContextTokens,
+            maxOutputTokens = settings.maxOutputTokens,
+            maxIterations = settings.maxIterations,
+            providers = models.providers,
+            activeProviderId = selection.active?.providerId,
+            activeModel = selection.active?.model,
+            sameModelAcrossChats = settings.sameModelAcrossChats,
+            modelSelectionReady = true,
+            modelSelectionError = models.error,
+            planningModelsEnabled = settings.planningModelsEnabled,
+            planningProviderId = selection.planning?.providerId,
+            planningModel = selection.planning?.model,
+            executionProviderId = selection.execution?.providerId,
+            executionModel = selection.execution?.model,
+            planningModelsPromoSeen = settings.planningModelsPromoSeen,
+            forkPromoSeen = settings.forkPromoSeen,
+            voiceEngine = settings.voiceEngine,
+            groqWhisperModel = settings.groqWhisperModel,
+            voicePromoSeen = settings.voicePromoSeen,
+        ) }
+    }
+
+    private fun editModelSelection(action: suspend () -> Unit) {
+        if (_state.value.modelSelectionBusy) return
+        _state.update { it.copy(modelSelectionBusy = true) }
+        viewModelScope.launch {
+            try {
+                action()
+                applyModelState(c.chatModels.observe(sessionId).first())
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { _state.update { it.copy(error = e.message ?: "Could not save the model selection") } }
+            finally { _state.update { it.copy(modelSelectionBusy = false) } }
+        }
+    }
+
+    fun setSameModelAcrossChats(shared: Boolean) = editModelSelection {
+        c.chatModels.setShared(ensureSession(), shared)
+    }
+
     /**
      * Human-readable description of what the agent is doing right now.
      * [ChatUiState.currentToolAction] lingers briefly after a tool finishes so
@@ -664,10 +691,11 @@ class ChatViewModel(
     // Sending & slash commands
     // ------------------------------------------------------------------
 
-    fun send(rawText: String) {
+    /** True when the composer can consume the draft, including local commands and queued messages. */
+    fun send(rawText: String): Boolean {
         val trimmed = rawText.trim()
         // File-only sends are legitimate: the attachments carry the message.
-        if (trimmed.isEmpty() && _state.value.fileAttachments.isEmpty()) return
+        if (trimmed.isEmpty() && _state.value.fileAttachments.isEmpty()) return false
 
         val resolved = if (trimmed.startsWith("/")) {
             SlashCommands.resolve(
@@ -683,27 +711,27 @@ class ChatViewModel(
         when (resolved.kind) {
             SlashCommands.Kind.CLEAR -> {
                 _navEvents.tryEmit(NavEvent.NewChat)
-                return
+                return true
             }
             SlashCommands.Kind.COMPACT -> {
                 viewModelScope.launch { forceCompact() }
-                return
+                return true
             }
             SlashCommands.Kind.COST -> {
                 _state.update { it.copy(showCostDialog = true) }
-                return
+                return true
             }
             SlashCommands.Kind.SKILLS -> {
                 _state.update { it.copy(showSkillsSheet = true, skills = chatSkills().list()) }
-                return
+                return true
             }
             SlashCommands.Kind.ENV -> {
                 _state.update { it.copy(showEnvSheet = true) }
-                return
+                return true
             }
             SlashCommands.Kind.UNKNOWN -> {
                 _state.update { it.copy(error = resolved.error) }
-                return
+                return false
             }
             SlashCommands.Kind.PLAIN,
             SlashCommands.Kind.INIT,
@@ -722,16 +750,16 @@ class ChatViewModel(
             setMode(AgentMode.PLAN)
         }
 
-        val agentText = resolved.agentText ?: return
+        val agentText = resolved.agentText ?: return false
         val sid = sessionId
         if (sid != null && c.runManager.isRunning(sid)) {
             // Queue the expanded text for this chat's successful Run finished event.
             // Local slash commands never reach here, so /cost /skills /clear keep working mid-run.
             val target = SlashCommands.dispatchTarget(isRunning = true, agentText = agentText)
             c.runManager.inject(sid, target.text)
-            return
+            return true
         }
-        startRun(agentText)
+        return startRun(agentText)
     }
 
     fun cancelQueuedMessage() {
@@ -1024,19 +1052,31 @@ class ChatViewModel(
     // Run lifecycle (delegated to the app-scoped RunManager)
     // ------------------------------------------------------------------
 
-    private fun startRun(text: String, workspaceMcpGate: Boolean = true, queuedPromptId: String? = null, replacement: ChatMessage? = null) {
-        if (startingRun) return
+    private fun startRun(text: String, workspaceMcpGate: Boolean = true, queuedPromptId: String? = null, replacement: ChatMessage? = null): Boolean {
+        if (startingRun) return false
         val targetSession = sessionId
         val s0 = _state.value
+        if (!s0.modelSelectionReady || s0.modelSelectionBusy) {
+            _state.update { it.copy(error = "Model selection is being saved. Try sending again in a moment.") }
+            return false
+        }
+        if (s0.modelSelectionError != null) {
+            _state.update { it.copy(error = s0.modelSelectionError) }
+            return false
+        }
         val selectedProviderId = when {
             s0.dualPlanning && s0.mode == AgentMode.PLAN -> s0.planningProviderId ?: s0.activeProviderId
             s0.dualPlanning && s0.mode == AgentMode.ACT -> s0.executionProviderId ?: s0.activeProviderId
             else -> s0.activeProviderId
         }
+        if (!s0.sameModelAcrossChats && selectedProviderId != null && s0.providers.none { it.id == selectedProviderId }) {
+            _state.update { it.copy(error = "This chat's provider is unavailable. Choose another provider in the model picker.") }
+            return false
+        }
         if (selectedProviderId != null && com.androidharness.app.local.LocalModelCatalog.isLocal(selectedProviderId) &&
             s0.providers.none { it.id == selectedProviderId }) {
             _state.update { it.copy(error = "The selected local model was removed. Download it again or explicitly choose another provider.") }
-            return
+            return false
         }
         // Separate planning/execution models: plan-mode runs use the planning
         // slot, everything else the execution one. A slot without a provider
@@ -1049,7 +1089,7 @@ class ChatViewModel(
             else -> s0.activeProvider
         } ?: run {
             _state.update { it.copy(error = "No provider configured. Add one from the Providers screen first.") }
-            return
+            return false
         }
         val roleModel = when {
             s0.dualPlanning && s0.mode == AgentMode.PLAN ->
@@ -1062,11 +1102,18 @@ class ChatViewModel(
                     ?: provider.model
             else -> s0.activeModel?.takeIf { it.isNotBlank() } ?: provider.model
         }
+        // Reject a removed pinned Harness model before consuming the draft or attachments.
+        if (!s0.sameModelAcrossChats && provider.id == com.androidharness.app.llm.HarnessProvider.ID &&
+            com.androidharness.app.llm.HarnessProvider.sanitize(roleModel,
+                com.androidharness.app.llm.HarnessProvider.customModelIds) != roleModel) {
+            _state.update { it.copy(error = "This chat's model is no longer available. Choose another model in the picker.") }
+            return false
+        }
         val apiKey = if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) c.providers.harnessApiKey(s0.providers)
         else provider.effectiveApiKey(c.providers.apiKey(provider.id))
         if (apiKey.isBlank()) {
             _state.update { it.copy(error = "Provider \"${provider.name}\" has no API key. Edit it on the Providers screen.") }
-            return
+            return false
         }
 
         val imageRefs = replacement?.images ?: pendingAttachments.toList()
@@ -1125,6 +1172,9 @@ class ChatViewModel(
                     ?.takeIf { it.isNotBlank() }
                     ?.let { provider.copy(model = it) } ?: provider
                 val resolved = c.providers.resolveHarnessConfig(effectiveConfig)
+                check(s0.sameModelAcrossChats || resolved.model == effectiveConfig.model) {
+                    "This chat's model is no longer available. Choose another model in the picker."
+                }
                 if (resolved.model != effectiveConfig.model) {
                     when {
                         s0.dualPlanning && s0.mode == AgentMode.PLAN ->
@@ -1155,6 +1205,7 @@ class ChatViewModel(
                     workspaceOverride = runWorkspace,
                     queuedPromptId = queuedPromptId,
                     replacementMessageId = replacement?.id,
+                    allowModelFallback = s0.sameModelAcrossChats,
                 )
                 if (sessionId == null) {
                     sessionId = sid
@@ -1172,6 +1223,7 @@ class ChatViewModel(
                 startingRun = false
             }
         }
+        return true
     }
 
     // ------------------------------------------------------------------
@@ -1487,7 +1539,12 @@ class ChatViewModel(
 
     private suspend fun forceCompact() {
         val sid = sessionId ?: return
-        val provider = _state.value.activeProvider ?: return
+        val current = _state.value
+        if (!current.modelSelectionReady || current.modelSelectionBusy || current.modelSelectionError != null) {
+            _state.update { it.copy(error = current.modelSelectionError ?: "Wait for the model selection to finish saving.") }
+            return
+        }
+        val provider = current.activeProvider?.let { it.copy(model = current.effectiveModel ?: it.model) } ?: return
         val apiKey = if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) c.providers.harnessApiKey()
         else provider.effectiveApiKey(c.providers.apiKey(provider.id)).takeIf { it.isNotBlank() } ?: return
         // Trigger compaction by temporarily pretending the context is full:
@@ -1561,59 +1618,14 @@ class ChatViewModel(
                 ?: com.androidharness.app.llm.ModelEntry(current.effectiveModel.orEmpty())
             com.androidharness.app.chatgpt.ChatGptThinking.selected(model, level) ?: return
         } else level
-        viewModelScope.launch {
-            ThinkingSpecs.setClamped(
-                c.settings,
-                _state.value.effectiveModel,
-                com.androidharness.app.llm.ModelsDev.providerKeyFor(_state.value.activeProvider?.baseUrl),
-                requested,
-            )
-            _state.update { it.copy(thinkingLevel = c.settings.settings.firstOrNull()?.thinkingLevel ?: requested) }
+        editModelSelection {
+            val sid = if (_state.value.sameModelAcrossChats) sessionId else ensureSession()
+            c.chatModels.setThinking(sid, requested)
         }
     }
 
     fun selectProviderForTarget(target: ModelSelectionTarget, id: String) {
-        val s = _state.value
-        viewModelScope.launch {
-            when (target) {
-                ModelSelectionTarget.PLANNING -> {
-                    c.settings.setPlanningModel(id, null)
-                    val provider = s.providers.firstOrNull { it.id == id }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
-                ModelSelectionTarget.EXECUTION -> {
-                    c.settings.setExecutionModel(id, null)
-                    val provider = s.providers.firstOrNull { it.id == id }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
-                ModelSelectionTarget.ACTIVE -> {
-                    val wasDual = s.dualPlanning
-                    c.settings.setActiveModel(null)
-                    c.settings.setActiveProvider(id)
-                    if (wasDual) {
-                        _state.update { it.copy(dualPlanning = false, mode = AgentMode.ACT).withCurrentAction() }
-                    }
-                    val provider = s.providers.firstOrNull { it.id == id }
-                    if (wasDual) {
-                        val modelName = provider?.model?.substringAfterLast('/') ?: "default"
-                        _state.update { it.copy(modeToast = "Dual planning off. Switched to $modelName") }
-                    }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
-            }
-        }
+        selectModelForTarget(target, id, null)
     }
 
     fun setActiveProvider(id: String) {
@@ -1622,44 +1634,13 @@ class ChatViewModel(
 
     fun selectModelForTarget(target: ModelSelectionTarget, providerId: String, model: String?) {
         val s = _state.value
-        viewModelScope.launch {
-            when (target) {
-                ModelSelectionTarget.PLANNING -> {
-                    c.settings.setPlanningModel(providerId, model)
-                    val provider = s.providers.firstOrNull { it.id == providerId }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        model?.takeIf { it.isNotBlank() } ?: provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
-                ModelSelectionTarget.EXECUTION -> {
-                    c.settings.setExecutionModel(providerId, model)
-                    val provider = s.providers.firstOrNull { it.id == providerId }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        model?.takeIf { it.isNotBlank() } ?: provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
-                ModelSelectionTarget.ACTIVE -> {
-                    val wasDual = s.dualPlanning
-                    c.settings.setActiveProvider(providerId)
-                    c.settings.setActiveModel(model)
-                    if (wasDual) {
-                        _state.update { it.copy(dualPlanning = false, mode = AgentMode.ACT).withCurrentAction() }
-                    }
-                    val provider = s.providers.firstOrNull { it.id == providerId }
-                    val chosenModel = (model ?: provider?.model)?.substringAfterLast('/') ?: "default"
-                    if (wasDual) {
-                        _state.update { it.copy(modeToast = "Dual planning off. Switched to $chosenModel") }
-                    }
-                    ThinkingSpecs.clampStoredLevel(
-                        c.settings,
-                        model?.takeIf { it.isNotBlank() } ?: provider?.model,
-                        com.androidharness.app.llm.ModelsDev.providerKeyFor(provider?.baseUrl),
-                    )
-                }
+        editModelSelection {
+            val sid = if (s.sameModelAcrossChats) sessionId else ensureSession()
+            c.chatModels.select(sid, com.androidharness.app.data.ChatModelTarget.valueOf(target.name), providerId, model)
+            if (target == ModelSelectionTarget.ACTIVE && s.dualPlanning) {
+                val chosen = (model ?: s.providers.firstOrNull { it.id == providerId }?.model)?.substringAfterLast('/') ?: "default"
+                _state.update { it.copy(dualPlanning = false, mode = AgentMode.ACT,
+                    modeToast = "Dual planning off. Switched to $chosen").withCurrentAction() }
             }
         }
     }
@@ -1697,7 +1678,8 @@ class ChatViewModel(
             if (existing == null) {
                 val created = c.providers.add(name, type, baseUrl, model, apiKey)
                 if (_state.value.activeProviderId == null) {
-                    c.settings.setActiveProvider(created.id)
+                    if (_state.value.sameModelAcrossChats) c.settings.setActiveProvider(created.id)
+                    else c.chatModels.select(ensureSession(), com.androidharness.app.data.ChatModelTarget.ACTIVE, created.id, null)
                 }
             } else {
                 c.providers.update(

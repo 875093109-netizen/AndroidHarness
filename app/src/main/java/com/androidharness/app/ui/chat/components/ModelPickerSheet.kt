@@ -2,11 +2,14 @@ package com.androidharness.app.ui.chat.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,6 +39,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -48,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidharness.app.agent.ThinkingLevel
@@ -81,6 +86,10 @@ fun ModelPickerSheet(
     browseProviderId: String? = null,
     onAddCustomModel: (providerId: String, model: String, reasoning: Boolean?) -> Unit = { _, _, _ -> },
     onDeleteCustomModel: (providerId: String, model: String) -> Unit = { _, _ -> },
+    /** Scope belongs to the conversation picker, not provider browsing or automation editors. */
+    sameModelAcrossChats: Boolean? = null,
+    onModelScopeChange: (Boolean) -> Unit = {},
+    modelScopeEnabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
@@ -126,270 +135,287 @@ fun ModelPickerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
+        LazyColumn(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Choose model", style = MaterialTheme.typography.titleMediumEmphasized)
-                    Text(
-                        if (chatGptPlan) "Choose a model available with your ChatGPT plan" else "Search, filter, or enter any model ID",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close")
-                }
-            }
-
-            // Current selection + prominent jump to provider management.
-            if (activeProvider != null && browseProviderId == null) {
-                Surface(
-                    color = scheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(12.dp),
-                    ) {
-                        ProviderMark(size = 42.dp)
-                        Spacer(Modifier.width(12.dp))
+            item(key = "picker-controls") {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
+                            Text("Choose model", style = MaterialTheme.typography.titleMediumEmphasized)
                             Text(
-                                activeProvider.name,
-                                style = MaterialTheme.typography.titleSmallEmphasized,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                effective.orEmpty(),
-                                style = MaterialTheme.typography.labelSmall,
+                                if (chatGptPlan) "Choose a model available with your ChatGPT plan" else "Search, filter, or enter any model ID",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = scheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        OutlinedButton(onClick = { onDismiss(); onManageProviders() }) {
-                            Text("Switch")
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close")
                         }
                     }
-                }
-            }
 
-            // Thinking tiers live in the header badge, not here: the picker is
-            // about WHICH model runs; the global ladder adapts to it via
-            // ThinkingSpecs.clampStoredLevel on every switch.
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Search models") },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                FilterChip(
-                    selected = thinkOnly,
-                    onClick = { thinkOnly = !thinkOnly },
-                    label = { Text("Thinking only", style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                if (!chatGptPlan) AssistChip(
-                    onClick = { showAddCustomDialog = true },
-                    label = { Text("Custom model", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                listedProvider?.let { p ->
-                    Text(
-                        if (isRefreshing) "reloading…" else if (listedCatalog.isEmpty()) "models" else "${listedCatalog.size} models",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onSurfaceVariant,
-                    )
-                    IconButton(
-                        onClick = {
-                            if (!isRefreshing) {
-                                scope.launch {
-                                    isRefreshing = true
-                                    refreshError = onRefreshCatalog(p.id)
-                                    isRefreshing = false
+                    sameModelAcrossChats?.let { shared ->
+                        Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                                .toggleable(value = shared, enabled = modelScopeEnabled, role = Role.Switch,
+                                    onValueChange = onModelScopeChange)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Use the same model in every chat", style = MaterialTheme.typography.bodyMedium)
+                                    Text(if (shared) "Changes apply across all chats." else "Each chat remembers its own model.",
+                                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                                 }
+                                Switch(checked = shared, onCheckedChange = null, enabled = modelScopeEnabled)
                             }
-                        },
-                    ) {
-                        if (isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                Icons.Outlined.Refresh,
-                                contentDescription = "Refresh models",
-                                tint = scheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
                     }
-                }
-            }
-            if (refreshError != null) {
-                Text(
-                    refreshError!!.take(80),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = scheme.error,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
 
-            if (chatGptPlan) {
-                Text("Using ChatGPT plan", style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(vertical = 8.dp))
-                com.androidharness.app.ui.common.ChatGptUsageLimits(compact = true)
-            }
-            // Bounded height: a wrap-content LazyColumn inside a bottom sheet
-            // collapses and its drags fight the sheet's dismiss gesture.
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(430.dp)
-                    .padding(top = 6.dp),
-            ) {
-                val provider = listedProvider
-                if (provider == null) {
-                    item {
-                        Text(
-                            "Add a provider first. The model list follows from it.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = scheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 24.dp),
-                        )
-                    }
-                } else {
-                    if (isRefreshing && listedCatalog.isEmpty()) {
-                        item(key = "reloading") {
+                    // Current selection + prominent jump to provider management.
+                    if (activeProvider != null && browseProviderId == null) {
+                        Surface(
+                            color = scheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp),
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
+                                modifier = Modifier.padding(12.dp),
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                )
+                                ProviderMark(size = 42.dp)
                                 Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "Reloading models…",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = scheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-
-                    if (!chatGptPlan && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id) && query.isNotBlank() && visibleRows.none { it.id.equals(query.trim(), ignoreCase = true) }) {
-                        item(key = "inline-custom-${query.trim()}") {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = scheme.primaryContainer.copy(alpha = 0.6f),
-                                border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.3f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        val customName = query.trim()
-                                        onAddCustomModel(provider.id, customName, null)
-                                        onSelect(provider.id, customName)
-                                        onDismiss()
-                                    },
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.Add,
-                                        contentDescription = null,
-                                        tint = scheme.primary,
-                                        modifier = Modifier.size(20.dp),
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        activeProvider.name,
+                                        style = MaterialTheme.typography.titleSmallEmphasized,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            "Use custom model",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = scheme.primary,
-                                        )
-                                        Text(
-                                            query.trim(),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontFamily = HarnessMono,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
+                                    Text(
+                                        effective.orEmpty(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = scheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                OutlinedButton(onClick = { onDismiss(); onManageProviders() }) {
+                                    Text("Switch")
                                 }
                             }
                         }
                     }
 
-                    items(visibleRows.size, key = { "${provider.id}-${visibleRows[it].id}" }) { index ->
-                        val entry = visibleRows[index]
-                        val isSelected = provider.id == (browseProviderId ?: activeProviderId) &&
-                            entry.id == (if (browseProviderId == null) effective else listedModel)
-                        ModelRow(
-                            id = entry.displayName ?: entry.id,
-                            thinking = entry.reasoning ?: reasoningCapable(entry.id),
-                            known = entry.reasoning != null,
-                            selected = isSelected,
-                            isCustom = entry.custom,
-                            ctx = ctxLabel(
-                                entry.contextTokens
-                                    ?: ModelsDev.entry(devKey, entry.id)?.contextTokens,
-                            ),
-                            note = entry.note,
-                            onClick = {
-                                onSelect(provider.id, entry.id)
-                                onDismiss()
-                            },
-                            onDelete = if (entry.custom) {
-                                { onDeleteCustomModel(provider.id, entry.id) }
-                            } else null,
-                        )
-                    }
-                }
-                item {
+                    // Thinking tiers live in the header badge, not here: the picker is
+                    // about WHICH model runs; the global ladder adapts to it via
+                    // ThinkingSpecs.clampStoredLevel on every switch.
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (!chatGptPlan) TextButton(onClick = { showAddCustomDialog = true }, enabled = listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) {
-                            Text("+ Custom model…")
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            placeholder = { Text("Search models") },
+                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        FilterChip(
+                            selected = thinkOnly,
+                            onClick = { thinkOnly = !thinkOnly },
+                            label = { Text("Thinking only", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        if (!chatGptPlan) AssistChip(
+                            onClick = { showAddCustomDialog = true },
+                            label = { Text("Custom model", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        listedProvider?.let { p ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (isRefreshing) "reloading…" else if (listedCatalog.isEmpty()) "models" else "${listedCatalog.size} models",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (!isRefreshing) {
+                                        scope.launch {
+                                            isRefreshing = true
+                                            refreshError = onRefreshCatalog(p.id)
+                                            isRefreshing = false
+                                        }
+                                    }
+                                },
+                            ) {
+                                if (isRefreshing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Outlined.Refresh,
+                                        contentDescription = "Refresh models",
+                                        tint = scheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                            }
                         }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { onDismiss(); onManageProviders() }) {
-                            Text("Manage providers…")
+                    }
+                    if (refreshError != null) {
+                        Text(
+                            refreshError!!.take(80),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.error,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+
+                    if (chatGptPlan) {
+                        Text("Using ChatGPT plan", style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 8.dp))
+                        com.androidharness.app.ui.common.ChatGptUsageLimits(compact = true)
+                    }
+                }
+            }
+            // Controls and models share one scroll area so landscape and large text remain reachable.
+            val provider = listedProvider
+            if (provider == null) {
+                item {
+                    Text(
+                        "Add a provider first. The model list follows from it.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                }
+            } else {
+                if (isRefreshing && listedCatalog.isEmpty()) {
+                    item(key = "reloading") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "Reloading models…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = scheme.onSurfaceVariant,
+                            )
                         }
+                    }
+                }
+
+                if (!chatGptPlan && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id) && query.isNotBlank() && visibleRows.none { it.id.equals(query.trim(), ignoreCase = true) }) {
+                    item(key = "inline-custom-${query.trim()}") {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = scheme.primaryContainer.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.3f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable(enabled = modelScopeEnabled) {
+                                    val customName = query.trim()
+                                    onAddCustomModel(provider.id, customName, null)
+                                    onSelect(provider.id, customName)
+                                    onDismiss()
+                                },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Add,
+                                    contentDescription = null,
+                                    tint = scheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Use custom model",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = scheme.primary,
+                                    )
+                                    Text(
+                                        query.trim(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = HarnessMono,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                items(visibleRows.size, key = { "${provider.id}-${visibleRows[it].id}" }) { index ->
+                    val entry = visibleRows[index]
+                    val isSelected = provider.id == (browseProviderId ?: activeProviderId) &&
+                        entry.id == (if (browseProviderId == null) effective else listedModel)
+                    ModelRow(
+                        id = entry.displayName ?: entry.id,
+                        thinking = entry.reasoning ?: reasoningCapable(entry.id),
+                        known = entry.reasoning != null,
+                        selected = isSelected,
+                        isCustom = entry.custom,
+                        ctx = ctxLabel(
+                            entry.contextTokens
+                                ?: ModelsDev.entry(devKey, entry.id)?.contextTokens,
+                        ),
+                        note = entry.note,
+                        enabled = modelScopeEnabled,
+                        onClick = {
+                            onSelect(provider.id, entry.id)
+                            onDismiss()
+                        },
+                        onDelete = if (entry.custom) {
+                            { onDeleteCustomModel(provider.id, entry.id) }
+                        } else null,
+                    )
+                }
+            }
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (!chatGptPlan) TextButton(onClick = { showAddCustomDialog = true }, enabled = listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) {
+                        Text("+ Custom model…")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { onDismiss(); onManageProviders() }) {
+                        Text("Manage providers…")
                     }
                 }
             }
@@ -420,10 +446,12 @@ private fun ModelRow(
     note: String? = null,
     onClick: () -> Unit,
     onDelete: (() -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
+        enabled = enabled,
         color = if (selected) scheme.secondaryContainer else scheme.surface,
         shape = RoundedCornerShape(14.dp),
         border = if (selected) BorderStroke(1.dp, scheme.primary.copy(alpha = 0.28f)) else null,

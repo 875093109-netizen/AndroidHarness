@@ -58,6 +58,8 @@ class RunManager(
     /** MCP servers; tools are attached per run. Null in tests without MCP. */
     private val mcp: com.androidharness.app.tools.mcp.McpManager? = null,
     private val repoMap: com.androidharness.app.repomap.RepoMapCache? = null,
+    private val chatModels: com.androidharness.app.data.ChatModelRepository =
+        com.androidharness.app.data.ChatModelRepository(settings, providers, sessions),
 ) {
 
     val controls = TaskControlStore(java.io.File(context.filesDir, "task-controls"))
@@ -230,11 +232,12 @@ class RunManager(
         replacementMessageId: String? = null,
         onlyIfIdle: Boolean = false,
         automationRunId: String? = null,
+        allowModelFallback: Boolean = true,
     ): String = kotlinx.coroutines.withContext(Dispatchers.IO) { workspaceGuard.withLock {
         startRunLocked(sessionId, text, imageRefs, config, apiKey, permissionMode, mode,
             maxOutputTokens, maxContextTokens, thinking, maxIterations, workspaceOverride,
             notifyOnFinish, resume, queuedPromptId, replacementMessageId,
-            onlyIfIdle = onlyIfIdle, automationRunId = automationRunId)
+            onlyIfIdle = onlyIfIdle, automationRunId = automationRunId, allowModelFallback = allowModelFallback)
     } }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -258,6 +261,7 @@ class RunManager(
         followUpRunId: String? = null,
         onlyIfIdle: Boolean = false,
         automationRunId: String? = null,
+        allowModelFallback: Boolean = true,
     ): String {
         val sid = sessionId ?: sessions.createSession(
             text.take(48),
@@ -272,6 +276,9 @@ class RunManager(
             previous.join()
         }
         val runConfig = providers.resolveHarnessConfig(config)
+        check(allowModelFallback || runConfig.model == config.model) {
+            "This chat's model is no longer available. Choose another model in the picker."
+        }
         val assignedWorkspace = workspace.forSession(sid)
         require(workspaceOverride == null || workspaceOverride.displayPath == assignedWorkspace.displayPath) {
             "This chat's workspace changed while preparing the request. Send the message again."
@@ -292,6 +299,7 @@ class RunManager(
         val turnId = if (resume) prior.turnId else UUID.randomUUID().toString()
         val record = controls.update(sid) { it.copy(
             status = "running", reason = null, provider = runConfig, workspacePath = runWorkspace.displayPath,
+            allowModelFallback = allowModelFallback,
             usedProviderIds = (if (resume) it.usedProviderIds else emptySet()) + runConfig.id,
             mode = mode.name, thinking = thinking.name, maxOutput = maxOutputTokens,
             maxContext = maxContextTokens, maxIterations = maxIterations, turnId = turnId,
@@ -528,7 +536,7 @@ class RunManager(
                                 settings.settings.first().permissionMode, mode, maxOutputTokens,
                                 maxContextTokens, thinking, maxIterations, workspaceOverride = runWorkspace,
                                 notifyOnFinish = notifyOnFinish, resume = continuing, queuedPromptId = prompt?.id,
-                                followUpRunId = ended.runId)
+                                followUpRunId = ended.runId, allowModelFallback = saved.allowModelFallback)
                         } catch (ce: CancellationException) { throw ce }
                         catch (e: Exception) {
                             val reason = "Could not ${if (action is RunFollowUps.Action.Continue) "continue task" else "send queued message"}: ${e.message}"
@@ -687,7 +695,11 @@ class RunManager(
             }
 
             is AgentEvent.ProviderChanged -> {
-                controls.flow(sessionId).value.provider?.let { settings.switchActiveSelection(it, event.config) }
+                controls.flow(sessionId).value.provider?.let { from ->
+                    try { chatModels.providerChanged(sessionId, from, event.config) }
+                    catch (ce: CancellationException) { throw ce }
+                    catch (_: Exception) { /* The running task still records the actual account below. */ }
+                }
                 controls.update(sessionId) { it.copy(provider = event.config, usedProviderIds = it.usedProviderIds + event.config.id) }
                 sessions.addMessage(sessionId, ChatMessage(role = Role.SYSTEM, text = event.reason, turnId = turnId))
                 live.update { it.copy(retryStatus = event.reason) }
@@ -887,7 +899,8 @@ class RunManager(
                     startRunLocked(sessionId, prompt.text, emptyList(), config, apiKey,
                         settings.settings.first().permissionMode, AgentMode.valueOf(saved.mode), saved.maxOutput,
                         saved.maxContext, ThinkingLevel.valueOf(saved.thinking), saved.maxIterations,
-                        workspaceOverride = workspace.forSession(sessionId), queuedPromptId = prompt.id, onlyIfIdle = true)
+                        workspaceOverride = workspace.forSession(sessionId), queuedPromptId = prompt.id, onlyIfIdle = true,
+                        allowModelFallback = saved.allowModelFallback)
                 } catch (ce: CancellationException) { throw ce }
                 catch (e: Exception) {
                     val reason = "Could not send queued message: ${e.message}"
@@ -908,7 +921,8 @@ class RunManager(
         startRun(sessionId, "", emptyList(), config, apiKey, settings.settings.first().permissionMode,
             AgentMode.valueOf(saved.mode), saved.maxOutput, saved.maxContext,
             ThinkingLevel.valueOf(saved.thinking), saved.maxIterations, workspaceOverride = fs, resume = true,
-            onlyIfIdle = true, automationRunId = automationRunId, notifyOnFinish = notifyOnFinish)
+            onlyIfIdle = true, automationRunId = automationRunId, notifyOnFinish = notifyOnFinish,
+            allowModelFallback = saved.allowModelFallback)
     }
 
     // ------------------------------------------------------------------

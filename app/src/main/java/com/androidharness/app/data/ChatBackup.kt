@@ -44,6 +44,7 @@ data class BackupSession(
     val compactionSummary: String = "",
     val compactionBefore: Long = 0,
     val messages: List<BackupMessage> = emptyList(),
+    val modelSelectionJson: String? = null,
 )
 
 @Serializable
@@ -136,6 +137,7 @@ class ChatBackupManager(
                     projectId = s.projectId,
                     compactionSummary = s.compactionSummary,
                     compactionBefore = s.compactionBefore,
+                    modelSelectionJson = s.modelSelectionJson,
                     messages = bySession[s.id].orEmpty().map { m ->
                         BackupMessage(
                             id = m.id,
@@ -191,6 +193,7 @@ class ChatBackupManager(
                             projectId = s.projectId,
                             compactionSummary = s.compactionSummary,
                             compactionBefore = s.compactionBefore,
+                            modelSelectionJson = s.modelSelectionJson,
                         )
                     )
                     val messages = s.messages.map { m ->

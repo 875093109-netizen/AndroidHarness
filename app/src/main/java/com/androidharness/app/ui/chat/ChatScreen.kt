@@ -416,6 +416,9 @@ fun ChatScreen(
             onRefreshCatalog = viewModel::refreshCatalog,
             onAddCustomModel = viewModel::addCustomModel,
             onDeleteCustomModel = viewModel::deleteCustomModel,
+            sameModelAcrossChats = state.sameModelAcrossChats,
+            onModelScopeChange = viewModel::setSameModelAcrossChats,
+            modelScopeEnabled = state.modelSelectionReady && !state.modelSelectionBusy,
             // Provider management stays in-conversation: a sheet, not a screen.
             onManageProviders = {
                 activeProviderManagerTarget = target
@@ -908,6 +911,8 @@ fun ChatScreen(
                 sessionTitle = state.sessionTitle,
                 busy = state.busy,
                 pickerLabel = when {
+                    !state.modelSelectionReady -> "Loading model…"
+                    currentProvider == null && !state.sameModelAcrossChats -> "Choose a model for this chat"
                     currentProvider == null -> "Add a provider to get started"
                     state.dualPlanning && state.mode == AgentMode.PLAN ->
                         "$currentModel (Plan)"
@@ -915,6 +920,7 @@ fun ChatScreen(
                         "$currentModel (Exec)"
                     else -> currentModel ?: currentProvider.name
                 },
+                modelScopeLabel = if (state.sameModelAcrossChats) null else "This chat",
                 mode = state.mode,
                 dualPlanning = state.dualPlanning,
                 thinkingLevel = if (chatGptPlan) com.androidharness.app.chatgpt.ChatGptThinking.selected(modelEntry, state.thinkingLevel)
@@ -1545,10 +1551,12 @@ fun ChatScreen(
                     onSend = {
                         val payload = SlashCommands.composeSend(attachedSkill, composerText)
                         if (payload.isNotBlank() || state.fileAttachments.isNotEmpty()) {
-                            viewModel.send(payload)
-                            setComposerText("")
-                            attachedSkill = null
-                            slashExpanded = false
+                            // Keep the draft when a selection is still loading/saving or unavailable.
+                            if (viewModel.send(payload)) {
+                                setComposerText("")
+                                attachedSkill = null
+                                slashExpanded = false
+                            }
                         }
                     },
                     onSchedule = {

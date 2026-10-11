@@ -87,7 +87,7 @@ class AppContainer(val appContext: Context) {
         .addMigrations(
             AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6,
             AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8,
-            AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14,
+            AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14, AppDatabase.MIGRATION_14_15,
         )
         .addCallback(AppDatabase.OVERSIZED_ROW_SANITIZER)
         // Only kicks in when no migration path exists (pre-v4 databases);
@@ -95,6 +95,7 @@ class AppContainer(val appContext: Context) {
         .fallbackToDestructiveMigration(true)
         .build()
     val sessions = SessionRepository(db)
+    val chatModels = com.androidharness.app.data.ChatModelRepository(settings, providers, sessions)
     val chatBackup = ChatBackupManager(db, appContext)
     val snippets = com.androidharness.app.data.SnippetRepository(db.dao())
 
@@ -194,6 +195,7 @@ class AppContainer(val appContext: Context) {
         providers = providers,
         mcp = mcp,
         repoMap = repoMap,
+        chatModels = chatModels,
     )
     val github = com.androidharness.app.github.GitHubAuth(BuildConfig.GITHUB_CLIENT_ID,
         keys::githubCredential, keys::putGitHubCredential, { refreshGitHubAuth() })
