@@ -1,0 +1,233 @@
+package com.androidharness.app.ui.projects
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.androidharness.app.AppContainer
+import com.androidharness.app.automation.AutomationTask
+import com.androidharness.app.data.AppSettings
+import com.androidharness.app.data.db.ProjectEntity
+import com.androidharness.app.ui.common.AddWorkspaceDialog
+import com.androidharness.app.ui.common.AppHeader
+import com.androidharness.app.ui.common.formatRelativeTime
+import com.androidharness.app.ui.github.GitHubWorkspaceDialog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+@Composable
+fun ProjectsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (String) -> Unit) {
+    val projects by container.workspace.projects.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sessions by container.sessions.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
+    val counts = remember(sessions, settings.archivedSessions) {
+        sessions.filterNot { it.id in settings.archivedSessions }.groupingBy { it.projectId }.eachCount()
+    }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun finishAdd(id: String?) {
+        adding = false
+        id?.let(onOpenProject)
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) finishAdd(null) else scope.launch {
+            try { finishAdd(container.workspace.addPickedFolder(uri, activate = false).id) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message; finishAdd(null) }
+        }
+    }
+
+    Scaffold(topBar = { AppHeader("Projects", onBack = onBack) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), state = rememberLazyListState(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+            items(projects, key = { it.id }) { project ->
+                val count = counts[project.id] ?: 0
+                ProjectRow(project.name, "${container.workspace.describe(project).kindLabel} · $count ${if (count == 1) "chat" else "chats"}",
+                    Icons.Outlined.Folder, onClick = { onOpenProject(project.id) })
+            }
+            item {
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                ProjectRow("Add project", icon = Icons.Outlined.Add, onClick = {
+                    scope.launch {
+                        container.workspace.currentProjectOnce()
+                        adding = true
+                    }
+                })
+            }
+            error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp)) } }
+        }
+    }
+    if (adding) AddWorkspaceDialog(container, onDismiss = { finishAdd(null) },
+        onPickSaf = { adding = false; picker.launch(null) }, onSelected = { finishAdd(it) }, activateWorkspace = false)
+}
+
+@Composable
+fun ProjectScreen(
+    container: AppContainer,
+    projectId: String,
+    onBack: () -> Unit,
+    onOpenChat: (String) -> Unit,
+    onNewChat: (String) -> Unit,
+    creatingChat: Boolean,
+    onMemory: () -> Unit,
+    onAutomation: (String?, Boolean) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val projects by container.workspace.projects.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sessions by container.sessions.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
+    val tasks by container.automation.repository.tasks.collectAsStateWithLifecycle()
+    val running by container.runManager.runningSessionIds.collectAsStateWithLifecycle()
+    val project = projects.firstOrNull { it.id == projectId }
+    val chats = remember(sessions, projectId, settings.archivedSessions, settings.pinnedSessions) {
+        sessions.filter { it.projectId == projectId && it.id !in settings.archivedSessions }
+            .sortedByDescending { it.id in settings.pinnedSessions }
+    }
+    val projectTasks = remember(tasks, projectId) { tasks.filter { it.projectId == projectId } }
+    var tab by rememberSaveable(projectId) { mutableIntStateOf(0) }
+    var showRepository by rememberSaveable(projectId) { mutableStateOf(false) }
+    var showDetails by rememberSaveable(projectId) { mutableStateOf(false) }
+    var repository by remember(projectId) { mutableStateOf<String?>(null) }
+    val environment by container.linuxEnv.state.collectAsStateWithLifecycle()
+    LaunchedEffect(project, environment, showRepository) {
+        repository = null
+        if (project != null && !showRepository && container.linuxEnv.gitToolsReady) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val fs = container.workspace.fsFor(project)
+                    if (fs.shellRoot != null) container.githubRepositories.inspect(fs).remoteUrl.takeIf { it.isNotBlank() }
+                    else null
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
+            }?.let { repository = it }
+        }
+    }
+
+    val ssh = remember(project) { project?.let { runCatching { container.workspace.fsFor(it) }.getOrNull() as? com.androidharness.app.workspace.SshFs } }
+    Scaffold(topBar = {
+        Column {
+            AppHeader(project?.name ?: "Project", subtitle = project?.let { container.workspace.describe(it).kindLabel }, onBack = onBack)
+            com.androidharness.app.ui.common.SshWorkspaceBar(container, ssh, includeStatusBarPadding = false)
+        }
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), state = rememberLazyListState(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+            if (project == null) {
+                item { Text("This project is unavailable. Your chats are still in All chats.", modifier = Modifier.padding(12.dp)) }
+            } else {
+                item {
+                    ProjectRow("Repository", repository ?: "Connect or manage repository", Icons.Outlined.AccountTree,
+                        onClick = { showRepository = true })
+                    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(tab == 0, { tab = 0 }, label = {
+                            Text("Chats", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        }, modifier = Modifier.weight(0.4f))
+                        FilterChip(tab == 1, { tab = 1 }, label = {
+                            Text("Automations", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        }, modifier = Modifier.weight(0.6f))
+                    }
+                }
+                if (tab == 0) {
+                    item {
+                        Button(onClick = { onNewChat(projectId) }, enabled = !creatingChat,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                            Text(if (creatingChat) "Creating…" else "New chat")
+                        }
+                    }
+                    if (chats.isEmpty()) item { Text("No chats yet. Start one in this project.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)) }
+                    items(chats, key = { it.id }) { session ->
+                        ProjectRow(session.title, if (session.id in running) "Running" else formatRelativeTime(session.updatedAt),
+                            Icons.Outlined.ChatBubbleOutline, onClick = { onOpenChat(session.id) })
+                    }
+                } else {
+                    if (projectTasks.isEmpty()) item { Text("No automations yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)) }
+                    items(projectTasks, key = { it.id }) { task ->
+                        ProjectRow(task.title, task.projectStatus(), Icons.Outlined.Schedule,
+                            onClick = { onAutomation(task.id, false) })
+                    }
+                    item { ProjectRow("Add automation", icon = Icons.Outlined.Add, onClick = { onAutomation(null, true) }) }
+                    if (projectTasks.isNotEmpty()) item { ProjectRow("Manage automations", icon = Icons.Outlined.AutoMode, onClick = { onAutomation(null, false) }) }
+                }
+                item {
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                    ProjectRow("Project memory", icon = Icons.Outlined.Description, onClick = onMemory)
+                    ProjectRow("Project details", icon = Icons.Outlined.FolderOpen, onClick = { showDetails = true })
+                }
+            }
+        }
+    }
+    if (showRepository && project != null) GitHubWorkspaceDialog(container, project.id, project.name,
+        onOpenSettings = onOpenSettings, onDismiss = { showRepository = false })
+    if (showDetails && project != null) ProjectDetailsDialog(container, project, onDismiss = { showDetails = false })
+}
+
+private fun AutomationTask.projectStatus(): String = when {
+    activeRun != null -> "${lastStatus.name.lowercase().replaceFirstChar { it.titlecase() }} · This project"
+    !enabled -> "Paused · This project"
+    schedule == com.androidharness.app.automation.AutomationSchedule.MANUAL -> "Manual · This project"
+    else -> "Scheduled · This project"
+}
+
+@Composable
+internal fun ProjectRow(title: String, subtitle: String? = null, icon: ImageVector, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ProjectDetailsDialog(container: AppContainer, project: ProjectEntity, onDismiss: () -> Unit) {
+    var name by rememberSaveable(project.id) { mutableStateOf(project.name) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    AlertDialog(onDismissRequest = { if (!saving) onDismiss() }, title = { Text("Project details") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(name, { if (it.length <= 100) name = it }, label = { Text("Project name") },
+                enabled = !saving, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Text("Workspace", style = MaterialTheme.typography.labelMedium)
+            SelectionContainer { Text(runCatching { container.workspace.fsFor(project).displayPath }.getOrDefault("Unavailable"),
+                style = MaterialTheme.typography.bodySmall) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }, confirmButton = {
+        TextButton(enabled = !saving && name.isNotBlank(), onClick = {
+            saving = true
+            scope.launch {
+                try { container.workspace.renameProject(project.id, name); onDismiss() }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { error = e.message }
+                finally { saving = false }
+            }
+        }) { Text(if (saving) "Saving…" else "Save") }
+    }, dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Cancel") } })
+}

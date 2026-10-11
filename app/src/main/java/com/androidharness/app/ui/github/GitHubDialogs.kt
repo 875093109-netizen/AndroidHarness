@@ -41,7 +41,8 @@ internal fun GitHubDialog(title: String, busy: Boolean, onDismiss: () -> Unit,
 }
 
 @Composable
-fun GitHubImportDialog(container: AppContainer, onDismiss: () -> Unit, onImported: () -> Unit = onDismiss) {
+fun GitHubImportDialog(container: AppContainer, onDismiss: () -> Unit, onImported: () -> Unit = onDismiss,
+    activateWorkspace: Boolean = true, onProjectImported: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var repos by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -86,7 +87,12 @@ fun GitHubImportDialog(container: AppContainer, onDismiss: () -> Unit, onImporte
         Button(onClick = {
             busy = true; message = "Importing repository…"
             scope.launch {
-                try { container.githubRepositories.importRepository(input); onImported() }
+                try {
+                    var projectId: String? = null
+                    container.githubRepositories.importRepository(input, activateWorkspace) { projectId = it }
+                    projectId?.let(onProjectImported)
+                    onImported()
+                }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { message = container.github.safeMessage(e) }
                 finally { busy = false }

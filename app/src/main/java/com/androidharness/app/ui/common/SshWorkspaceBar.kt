@@ -15,7 +15,7 @@ import kotlinx.coroutines.*
 
 /** One workspace-level control shared by chat, files, terminal and build screens. */
 @Composable
-fun SshWorkspaceBar(container: AppContainer, workspace: SshFs?) {
+fun SshWorkspaceBar(container: AppContainer, workspace: SshFs?, includeStatusBarPadding: Boolean = true) {
     if (workspace == null) return
     val id = workspace.location.connectionId
     val statuses by container.sshConnections.statuses.collectAsStateWithLifecycle()
@@ -28,7 +28,9 @@ fun SshWorkspaceBar(container: AppContainer, workspace: SshFs?) {
     val scope = rememberCoroutineScope()
     if (settings) SshWorkspaceDialog(container, workspace) { settings = false }
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth()
+            .then(if (includeStatusBarPadding) Modifier.statusBarsPadding() else Modifier)
+            .padding(horizontal = 12.dp, vertical = 4.dp)) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(if (status.connected) "● SSH connected" else "○ SSH disconnected", modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,

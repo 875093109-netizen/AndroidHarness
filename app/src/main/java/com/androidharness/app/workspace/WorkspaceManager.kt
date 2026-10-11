@@ -115,7 +115,7 @@ class WorkspaceManager(
         else -> FileFs(appPrivateRoot)
     }
 
-    suspend fun addSafProject(treeUri: Uri): ProjectEntity {
+    suspend fun addSafProject(treeUri: Uri, activate: Boolean = true): ProjectEntity {
         val existing = findDuplicate(projects.first(), KIND_SAF, treeUri.toString())
         context.contentResolver.takePersistableUriPermission(
             treeUri,
@@ -126,7 +126,7 @@ class WorkspaceManager(
             // identity and history, but retain the URI instead of an inaccessible path.
             val picked = existing.copy(kind = KIND_SAF, uri = treeUri.toString())
             dao.setProjectLocation(picked.id, picked.kind, requireNotNull(picked.uri))
-            return reactivate(picked)
+            return reactivate(picked, activate)
         }
         val name = treeUri.lastPathSegment
             ?.substringAfterLast(':')
@@ -136,16 +136,16 @@ class WorkspaceManager(
             name = name,
             kind = KIND_SAF,
             uri = treeUri.toString(),
-            lastUsedAt = System.currentTimeMillis(),
+            lastUsedAt = if (activate) System.currentTimeMillis() else 0,
         )
         dao.insertProject(project)
-        setActiveProject(project.id)
+        if (activate) setActiveProject(project.id)
         return project
     }
 
     /** Always retain the picker grant. [fsFor] enables shell access when the
      * real path is writable, and falls back to SAF if broad access is revoked. */
-    suspend fun addPickedFolder(treeUri: Uri): ProjectEntity = addSafProject(treeUri)
+    suspend fun addPickedFolder(treeUri: Uri, activate: Boolean = true): ProjectEntity = addSafProject(treeUri, activate)
 
     private fun writablePickedFolder(treeUri: Uri): File? =
         directFolderOrNull(SafPathResolver.resolve(treeUri))
@@ -156,13 +156,21 @@ class WorkspaceManager(
      * device browser, so "same folder twice through different doors" still
      * collides. Returns null only for the app workspace (never deduped).
      */
-    private suspend fun reactivate(project: ProjectEntity): ProjectEntity {
-        setActiveProject(project.id)
+    private suspend fun reactivate(project: ProjectEntity, activate: Boolean = true): ProjectEntity {
+        if (activate) setActiveProject(project.id)
         return project
     }
 
     suspend fun setActiveProject(id: String) {
         dao.touchProject(id, System.currentTimeMillis())
+    }
+
+    /** Renaming a label must not change the workspace or the default for new chats. */
+    suspend fun renameProject(id: String, name: String) {
+        val label = name.trim()
+        require(label.isNotEmpty() && label.length <= 100) { "Use a project name between 1 and 100 characters." }
+        requireNotNull(dao.project(id)) { "This project is no longer available." }
+        dao.renameProject(id, label)
     }
 
     /**
@@ -201,36 +209,36 @@ class WorkspaceManager(
         }
     }
 
-    suspend fun addSshProject(connection: SshConnection, root: String): ProjectEntity {
+    suspend fun addSshProject(connection: SshConnection, root: String, activate: Boolean = true): ProjectEntity {
         val location = SshLocation(connection.id, root.trimEnd('/').ifEmpty { "/" })
         val uri = kotlinx.serialization.json.Json.encodeToString(SshLocation.serializer(), location)
         requireNotNull(sshConnections).save(connection)
         val existing = projects.first().firstOrNull { it.kind == KIND_SSH && it.uri == uri }
-        if (existing != null) return reactivate(existing)
+        if (existing != null) return reactivate(existing, activate)
         val label = root.substringAfterLast('/').ifBlank { connection.host }
         val project = ProjectEntity(UUID.randomUUID().toString(),
             label + if (connection.termux) " · Termux SSH" else " · SSH",
-            KIND_SSH, uri, System.currentTimeMillis())
+            KIND_SSH, uri, if (activate) System.currentTimeMillis() else 0)
         dao.insertProject(project)
-        setActiveProject(project.id)
+        if (activate) setActiveProject(project.id)
         return project
     }
 
     /** Adds a project backed by a real filesystem path (requires Shizuku or All files access). */
-    suspend fun addShellProject(path: String): ProjectEntity {
+    suspend fun addShellProject(path: String, activate: Boolean = true): ProjectEntity {
         val existing = findDuplicate(projects.first(), KIND_SHELL, path)
         if (existing != null) {
-            return reactivate(existing)
+            return reactivate(existing, activate)
         }
         val project = ProjectEntity(
             id = java.util.UUID.randomUUID().toString(),
             name = path.substringAfterLast('/').ifBlank { path },
             kind = KIND_SHELL,
             uri = path,
-            lastUsedAt = System.currentTimeMillis(),
+            lastUsedAt = if (activate) System.currentTimeMillis() else 0,
         )
         dao.insertProject(project)
-        setActiveProject(project.id)
+        if (activate) setActiveProject(project.id)
         return project
     }
 

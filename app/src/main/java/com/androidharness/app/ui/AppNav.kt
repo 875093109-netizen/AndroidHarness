@@ -110,6 +110,9 @@ import com.androidharness.app.data.db.ChatSearch
 import com.androidharness.app.data.db.SessionEntity
 import com.androidharness.app.ui.chat.ChatScreen
 import com.androidharness.app.ui.chat.ChatViewModel
+import com.androidharness.app.ui.projects.ProjectsScreen
+import com.androidharness.app.ui.projects.ProjectScreen
+import com.androidharness.app.ui.projects.ProjectMemoryScreen
 import com.androidharness.app.ui.buildtest.BuildTestScreen
 import com.androidharness.app.ui.common.HarnessMark
 import com.androidharness.app.ui.common.ProviderMark
@@ -231,6 +234,7 @@ fun AppNav(container: AppContainer) {
     val activeFs by remember(workspaceSessionId) { container.workspace.forChat(workspaceSessionId) }
         .collectAsStateWithLifecycle(initialValue = null)
     var workspaceError by remember { mutableStateOf<String?>(null) }
+    var creatingProjectChat by remember { mutableStateOf(false) }
     fun selectWorkspace(id: String) {
         val sid = workspaceSessionId
         scope.launch {
@@ -252,7 +256,8 @@ fun AppNav(container: AppContainer) {
     // The drawer keeps its menu button; only the swipe gesture is disabled
     // while an editor is on screen.
     val currentRoute = currentEntry?.destination?.route
-    val drawerGesturesEnabled = currentRoute?.startsWith("viewer/") != true
+    val drawerGesturesEnabled = currentRoute?.startsWith("viewer/") != true &&
+        currentRoute?.endsWith("/memory") != true
     val runningSessionIds by container.runManager.runningSessionIds.collectAsStateWithLifecycle()
 
     var actionsSession by remember { mutableStateOf<SessionEntity?>(null) }
@@ -480,6 +485,16 @@ fun AppNav(container: AppContainer) {
                     }
                     Spacer(Modifier.height(4.dp))
 
+                    DrawerRow(
+                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                        title = "Projects",
+                        selected = currentRoute?.startsWith("project") == true,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            nav.navigate("projects") { launchSingleTop = true }
+                        },
+                    )
+
                     // ----- Files-changed pill for the open chat -----
                     // Live per-session aggregate; hidden until the agent (or an
                     // in-app save) touches something in this conversation.
@@ -683,7 +698,9 @@ fun AppNav(container: AppContainer) {
         },
     ) {
         Column(Modifier.fillMaxSize()) {
-        com.androidharness.app.ui.common.SshWorkspaceBar(container, activeFs as? com.androidharness.app.workspace.SshFs)
+        if (currentRoute?.startsWith("project") != true) {
+            com.androidharness.app.ui.common.SshWorkspaceBar(container, activeFs as? com.androidharness.app.workspace.SshFs)
+        }
         NavHost(
             modifier = Modifier.weight(1f),
             navController = nav,
@@ -841,6 +858,46 @@ fun AppNav(container: AppContainer) {
                 com.androidharness.app.ui.automation.AutomationScreen(container,
                     onBack = { nav.popBackStack() },
                     onOpenSession = { nav.navigate("chat/$it") })
+            }
+            composable("projects") {
+                ProjectsScreen(container, onBack = { nav.popBackStack() },
+                    onOpenProject = { nav.navigate("project/${encode(it)}") })
+            }
+            composable("project/{projectId}", arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { entry ->
+                val id = requireNotNull(entry.arguments?.getString("projectId"))
+                ProjectScreen(container, id, onBack = { nav.popBackStack() },
+                    onOpenChat = { nav.navigate("chat/${encode(it)}") },
+                    onNewChat = { projectId ->
+                        if (!creatingProjectChat) {
+                            creatingProjectChat = true
+                            scope.launch {
+                                try {
+                                    val sid = container.sessions.createProjectSession(projectId)
+                                    nav.navigate("chat/${encode(sid)}")
+                                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                                catch (e: Exception) { workspaceError = e.message }
+                                finally { creatingProjectChat = false }
+                            }
+                        }
+                    }, creatingChat = creatingProjectChat,
+                    onMemory = { nav.navigate("project/${encode(id)}/memory") },
+                    onAutomation = { taskId, create ->
+                        nav.navigate("project/${encode(id)}/automation?taskId=${encode(taskId.orEmpty())}&create=$create")
+                    }, onOpenSettings = { nav.navigate("settings") })
+            }
+            composable("project/{projectId}/memory", arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { entry ->
+                ProjectMemoryScreen(container, requireNotNull(entry.arguments?.getString("projectId")), onBack = { nav.popBackStack() })
+            }
+            composable("project/{projectId}/automation?taskId={taskId}&create={create}", arguments = listOf(
+                navArgument("projectId") { type = NavType.StringType },
+                navArgument("taskId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("create") { type = NavType.BoolType; defaultValue = false },
+            )) { entry ->
+                com.androidharness.app.ui.automation.AutomationScreen(container,
+                    onBack = { nav.popBackStack() }, onOpenSession = { nav.navigate("chat/${encode(it)}") },
+                    projectId = entry.arguments?.getString("projectId"),
+                    initialTaskId = entry.arguments?.getString("taskId")?.takeIf { it.isNotBlank() },
+                    createOnOpen = entry.arguments?.getBoolean("create") == true)
             }
             composable("build-test?session={session}", arguments = listOf(navArgument("session") { defaultValue = "" })) { entry ->
                 val buildSessionId = entry.arguments?.getString("session")?.takeIf { it.isNotBlank() }

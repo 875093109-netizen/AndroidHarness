@@ -113,6 +113,12 @@ class SessionRepository(
         return id
     }
 
+    /** Create an assigned chat without changing the default or any other chat. */
+    suspend fun createProjectSession(projectId: String): String = db.withTransaction {
+        requireNotNull(db.dao().project(projectId)) { "This project is no longer available." }
+        createSession("New chat", projectId)
+    }
+
     suspend fun addMessage(sessionId: String, message: ChatMessage, turnId: String? = null): String {
         val id = message.id ?: UUID.randomUUID().toString()
         val safeText = clampForStorage(message.text)

@@ -109,6 +109,11 @@ class ChatWorkspaceDeviceTest {
             start(sa, "alpha"); start(sb, "beta")
             withTimeout(30000) { entered.forEach { it.await() } }
             assertTrue(runs.isRunning(sa)); assertTrue(runs.isRunning(sb))
+            // Project memory edits must not race a task already using that workspace.
+            assertTrue(runCatching {
+                runs.withIdleWorkspace(c.workspace.fsFor(a)) { ProjectMemory.save(c.workspace.fsFor(a), "", "Concurrent edit") }
+            }.isFailure)
+            assertEquals("", ProjectMemory.read(c.workspace.fsFor(a)))
             assertTrue(runCatching { runs.assignWorkspace(sa, b.id) }.isFailure)
             c.workspace.setActiveProject(a.id)
             c.workspace.setActiveProject(b.id)
@@ -203,9 +208,13 @@ class ChatWorkspaceDeviceTest {
         error("Missing UI node: $text")
     }
     private fun tap(text: String) {
-        val node = awaitNode(text)
-        val bounds = Rect(); node.getBoundsInScreen(bounds)
-        instrumentation.uiAutomation.executeShellCommand("input tap ${bounds.centerX()} ${bounds.centerY()}").close()
-        SystemClock.sleep(250)
+        awaitNode(text); SystemClock.sleep(400)
+        var node = awaitNode(text)
+        while (!node.isClickable && node.parent != null) node = node.parent
+        if (!node.isClickable || !node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            val bounds = Rect(); awaitNode(text).getBoundsInScreen(bounds)
+            instrumentation.uiAutomation.executeShellCommand("input tap ${bounds.centerX()} ${bounds.centerY()}").close()
+        }
+        SystemClock.sleep(350)
     }
 }

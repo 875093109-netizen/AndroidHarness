@@ -37,18 +37,17 @@ fun AddWorkspaceDialog(
     onDismiss: () -> Unit,
     onPickSaf: () -> Unit,
     onSelected: (String) -> Unit = {},
+    activateWorkspace: Boolean = true,
 ) {
     ShizukuWorkspaceWarningEffect(container.shizuku)
     var destination by remember { mutableStateOf<String?>(null) }
-    val selectionScope = rememberCoroutineScope()
     if (destination == "github") {
-        com.androidharness.app.ui.github.GitHubImportDialog(container, onDismiss, onImported = {
-            selectionScope.launch { onSelected(container.workspace.currentProjectOnce().id); onDismiss() }
-        })
+        com.androidharness.app.ui.github.GitHubImportDialog(container, onDismiss,
+            onImported = onDismiss, activateWorkspace = activateWorkspace, onProjectImported = onSelected)
         return
     }
     if (destination == "ssh") {
-        SshWorkspaceDialog(container, onDismiss = onDismiss, onSelected = onSelected)
+        SshWorkspaceDialog(container, onDismiss = onDismiss, onSelected = onSelected, activateWorkspace = activateWorkspace)
         return
     }
     if (destination == null) {
@@ -76,7 +75,7 @@ fun AddWorkspaceDialog(
             assessment.region == PathClassifier.Region.APP_DATA ->
                 error = "That is the app's own private storage. Use the app workspace instead."
             else -> scope.launch {
-                onSelected(container.workspace.addShellProject(trimmed).id)
+                onSelected(container.workspace.addShellProject(trimmed, activateWorkspace).id)
                 onDismiss()
             }
         }
@@ -113,10 +112,10 @@ fun AddWorkspaceDialog(
                 Button(
                     onClick = {
                         if (appProject != null) scope.launch {
-                            container.workspace.setActiveProject(appProject.id)
+                            if (activateWorkspace) container.workspace.setActiveProject(appProject.id)
                             onSelected(appProject.id)
-                        }
-                        onDismiss()
+                            onDismiss()
+                        } else onDismiss()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Use app workspace") }

@@ -15,7 +15,7 @@ import com.jcraft.jsch.ChannelSftp
 import kotlinx.coroutines.*
 
 @Composable
-fun SshWorkspaceDialog(container: AppContainer, existing: SshFs? = null, onSelected: (String) -> Unit = {}, onDismiss: () -> Unit) {
+fun SshWorkspaceDialog(container: AppContainer, existing: SshFs? = null, onSelected: (String) -> Unit = {}, activateWorkspace: Boolean = true, onDismiss: () -> Unit) {
     SecureScreenEffect(container)
     val initial = remember { existing?.let { runCatching { container.sshConnections.load(it.location.connectionId) }.getOrNull() }
         ?: SshConnection(id = existing?.location?.connectionId ?: java.util.UUID.randomUUID().toString()) }
@@ -109,11 +109,13 @@ fun SshWorkspaceDialog(container: AppContainer, existing: SshFs? = null, onSelec
                     scope.launch {
                         try {
                             check(existing == null || (container.runManager.runningSessionIds.value.isEmpty() && !container.terminal.state.value.busy)) { "Finish running commands before changing the connection" }
-                            withContext(Dispatchers.IO) {
-                                if (existing == null) onSelected(container.workspace.addSshProject(config, folder).id)
-                                else container.sshConnections.save(config)
+                            val selectedId = withContext(Dispatchers.IO) {
+                                val id = if (existing == null) container.workspace.addSshProject(config, folder, activateWorkspace).id
+                                else { container.sshConnections.save(config); null }
                                 container.sshConnections.reconnect(config.id)
+                                id
                             }
+                            selectedId?.let(onSelected)
                             onDismiss()
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { error = e.message }

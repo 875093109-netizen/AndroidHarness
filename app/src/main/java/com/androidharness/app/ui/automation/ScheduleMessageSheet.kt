@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,6 +50,7 @@ internal fun ScheduleMessageSheet(
     onDismiss: () -> Unit,
     onSaved: (AutomationTask) -> Unit = {},
     onCancel: (() -> Unit)? = null,
+    defaultProjectId: String? = null,
 ) {
     val projects by container.workspace.projects.collectAsStateWithLifecycle(initialValue = emptyList())
     val sessions by container.sessions.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -60,15 +62,15 @@ internal fun ScheduleMessageSheet(
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val preferences = remember { context.getSharedPreferences("schedule_preferences", android.content.Context.MODE_PRIVATE) }
-    var prompt by remember(initial?.id) { mutableStateOf(initial?.prompt.orEmpty()) }
-    var projectId by remember(initial?.id) { mutableStateOf(initial?.projectId) }
-    var sessionId by remember(initial?.id) { mutableStateOf(initial?.targetSessionId) }
-    var providerId by remember(initial?.id) { mutableStateOf(initial?.providerId) }
-    var model by remember(initial?.id) { mutableStateOf(initial?.model) }
-    var schedule by remember(initial?.id) { mutableStateOf(initial?.schedule ?: AutomationSchedule.ONCE) }
-    var at by remember(initial?.id) { mutableLongStateOf(initial?.scheduledAt ?: initial?.nextRunAt ?: ZonedDateTime.now().plusHours(1).withSecond(0).withNano(0).toInstant().toEpochMilli()) }
-    var unmetered by remember(initial?.id) { mutableStateOf(initial?.unmeteredOnly ?: preferences.getBoolean("unmetered", false)) }
-    var page by remember { mutableStateOf(SchedulePage.DETAILS) }
+    var prompt by rememberSaveable(initial?.id) { mutableStateOf(initial?.prompt.orEmpty()) }
+    var projectId by rememberSaveable(initial?.id, defaultProjectId) { mutableStateOf(initial?.projectId ?: defaultProjectId) }
+    var sessionId by rememberSaveable(initial?.id) { mutableStateOf(initial?.targetSessionId) }
+    var providerId by rememberSaveable(initial?.id) { mutableStateOf(initial?.providerId) }
+    var model by rememberSaveable(initial?.id) { mutableStateOf(initial?.model) }
+    var schedule by rememberSaveable(initial?.id) { mutableStateOf(initial?.schedule ?: AutomationSchedule.ONCE) }
+    var at by rememberSaveable(initial?.id) { mutableLongStateOf(initial?.scheduledAt ?: initial?.nextRunAt ?: ZonedDateTime.now().plusHours(1).withSecond(0).withNano(0).toInstant().toEpochMilli()) }
+    var unmetered by rememberSaveable(initial?.id) { mutableStateOf(initial?.unmeteredOnly ?: preferences.getBoolean("unmetered", false)) }
+    var page by rememberSaveable { mutableStateOf(SchedulePage.DETAILS) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showActions by remember { mutableStateOf(false) }

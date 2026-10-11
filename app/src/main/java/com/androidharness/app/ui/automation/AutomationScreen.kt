@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,22 +64,38 @@ fun AutomationScreen(
     container: AppContainer,
     onBack: () -> Unit,
     onOpenSession: (String) -> Unit,
+    projectId: String? = null,
+    initialTaskId: String? = null,
+    createOnOpen: Boolean = false,
 ) {
     val manager = container.automation
-    val tasks by manager.repository.tasks.collectAsStateWithLifecycle()
-    val history by manager.repository.history.collectAsStateWithLifecycle()
+    val allTasks by manager.repository.tasks.collectAsStateWithLifecycle()
+    val allHistory by manager.repository.history.collectAsStateWithLifecycle()
+    val projects by container.workspace.projects.collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks = if (projectId == null) allTasks else allTasks.filter { it.projectId == projectId }
+    val taskIds = tasks.map { it.id }.toSet()
+    val history = if (projectId == null) allHistory else allHistory.filter { it.taskId in taskIds }
     val connection by manager.connection.collectAsStateWithLifecycle()
     val now by androidx.compose.runtime.produceState(System.currentTimeMillis()) {
         while (true) { value = System.currentTimeMillis(); kotlinx.coroutines.delay(60_000) }
     }
-    val project by container.workspace.currentProject.collectAsStateWithLifecycle(initialValue = null)
+    val defaultProject by container.workspace.currentProject.collectAsStateWithLifecycle(initialValue = null)
+    val project = if (projectId == null) defaultProject else projects.firstOrNull { it.id == projectId }
 
-    var editing by remember { mutableStateOf<AutomationTask?>(null) }
-    var showEditor by remember { mutableStateOf(false) }
-    var advancedEditor by remember { mutableStateOf(false) }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = allTasks.firstOrNull { it.id == editingId }
+    var showEditor by rememberSaveable { mutableStateOf(false) }
+    var advancedEditor by rememberSaveable { mutableStateOf(false) }
     var githubPresetProject by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var showHistory by remember { mutableStateOf(false) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var openedEditor by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(initialTaskId, createOnOpen, allTasks) {
+        if (!openedEditor && (createOnOpen || initialTaskId != null)) {
+            editingId = initialTaskId?.takeIf { id -> tasks.any { it.id == id } }
+            if (createOnOpen || editingId != null) { showEditor = true; openedEditor = true }
+        }
+    }
 
     fun act(action: () -> Unit) {
         runCatching(action).onFailure { error = it.message ?: "Something went wrong" }
@@ -89,7 +106,7 @@ fun AutomationScreen(
         topBar = {
             AppHeader(
                 "Automation",
-                subtitle = "Run agent tasks on your schedule",
+                subtitle = if (projectId == null) "Run agent tasks on your schedule" else project?.name ?: "Project unavailable",
                 onBack = onBack,
             )
         },
@@ -110,11 +127,11 @@ fun AutomationScreen(
                     },
                     runCount = history.size,
                     onCreate = {
-                        editing = null
+                        editingId = null
                         advancedEditor = false
                         showEditor = true
                     },
-                    onCreateAutomation = { editing = null; advancedEditor = true; showEditor = true },
+                    onCreateAutomation = { editingId = null; advancedEditor = true; showEditor = true },
                     createEnabled = project != null,
                 )
             }
@@ -185,7 +202,7 @@ fun AutomationScreen(
                         AutomationEmptyTasks(
                             projectAvailable = project != null,
                             onCreate = {
-                                editing = null
+                                editingId = null
                                 showEditor = true
                             },
                         )
@@ -193,10 +210,10 @@ fun AutomationScreen(
                 } else {
                     items(tasks, key = { it.id }) { task ->
                         AutomationTaskCard(
-                            task = task,
+                            task = task.copy(projectName = projects.firstOrNull { it.id == task.projectId }?.name ?: task.projectName),
                             onRun = { act { manager.runNow(task.id) } },
                             onEdit = {
-                                editing = task
+                                editingId = task.id
                                 showEditor = true
                             },
                             onStop = { act { manager.cancel(task.id) } },
@@ -219,7 +236,7 @@ fun AutomationScreen(
         com.androidharness.app.ui.github.GitHubPushPresetDialog(container, task.projectId, task.projectName,
             task = task, onDismiss = { showEditor = false })
     } else if (showEditor && (editing?.let { it.schedule != AutomationSchedule.MANUAL } ?: !advancedEditor)) {
-        ScheduleMessageSheet(container, editing, onDismiss = { showEditor = false })
+        ScheduleMessageSheet(container, editing, onDismiss = { showEditor = false }, defaultProjectId = projectId ?: project?.id)
     } else if (showEditor) {
         AutomationEditorDialog(
             container = container,
@@ -823,19 +840,19 @@ private fun AutomationEditorDialog(
         settings.executionProviderId ?: settings.activeProviderId
     } else settings.activeProviderId
 
-    var mode by remember(task) {
+    var mode by rememberSaveable(task?.id) {
         mutableStateOf(if (task == null) AutomationEditorMode.ASK_AI else AutomationEditorMode.MANUAL)
     }
-    var title by remember(task) { mutableStateOf(task?.title.orEmpty()) }
-    var prompt by remember(task) { mutableStateOf(task?.prompt.orEmpty()) }
-    var checkCommand by remember(task) { mutableStateOf(task?.checkCommand.orEmpty()) }
-    var schedule by remember(task) { mutableStateOf(task?.schedule ?: AutomationSchedule.MANUAL) }
-    var onceAt by remember(task) { mutableLongStateOf(task?.scheduledAt ?: defaultOneTimeRun()) }
-    var hour by remember(task) { mutableStateOf((task?.hour ?: 8).toString()) }
-    var minute by remember(task) { mutableStateOf((task?.minute ?: 0).toString()) }
-    var selectedProviderId by remember(task) { mutableStateOf(task?.providerId) }
-    var selectedModel by remember(task) { mutableStateOf(task?.model) }
-    var modelSelectionInitialized by remember(task) {
+    var title by rememberSaveable(task?.id) { mutableStateOf(task?.title.orEmpty()) }
+    var prompt by rememberSaveable(task?.id) { mutableStateOf(task?.prompt.orEmpty()) }
+    var checkCommand by rememberSaveable(task?.id) { mutableStateOf(task?.checkCommand.orEmpty()) }
+    var schedule by rememberSaveable(task?.id) { mutableStateOf(task?.schedule ?: AutomationSchedule.MANUAL) }
+    var onceAt by rememberSaveable(task?.id) { mutableLongStateOf(task?.scheduledAt ?: defaultOneTimeRun()) }
+    var hour by rememberSaveable(task?.id) { mutableStateOf((task?.hour ?: 8).toString()) }
+    var minute by rememberSaveable(task?.id) { mutableStateOf((task?.minute ?: 0).toString()) }
+    var selectedProviderId by rememberSaveable(task?.id) { mutableStateOf(task?.providerId) }
+    var selectedModel by rememberSaveable(task?.id) { mutableStateOf(task?.model) }
+    var modelSelectionInitialized by rememberSaveable(task?.id) {
         mutableStateOf(task?.let { !it.providerId.isNullOrBlank() && !it.model.isNullOrBlank() } == true)
     }
     var showModelPicker by remember { mutableStateOf(false) }
@@ -857,11 +874,11 @@ private fun AutomationEditorDialog(
     val selectedProvider = providers.firstOrNull { it.id == effectiveProviderId }
     val effectiveModel = selectedModel?.takeIf { it.isNotBlank() }
 
-    val aiTurns = remember(task) { mutableStateListOf<AutomationAiTurn>() }
-    var aiInput by remember(task) { mutableStateOf("") }
-    var aiDraft by remember(task) { mutableStateOf<AutomationAiDraft?>(null) }
-    var aiBusy by remember(task) { mutableStateOf(false) }
-    var aiError by remember(task) { mutableStateOf<String?>(null) }
+    val aiTurns = remember(task?.id) { mutableStateListOf<AutomationAiTurn>() }
+    var aiInput by remember(task?.id) { mutableStateOf("") }
+    var aiDraft by remember(task?.id) { mutableStateOf<AutomationAiDraft?>(null) }
+    var aiBusy by remember(task?.id) { mutableStateOf(false) }
+    var aiError by remember(task?.id) { mutableStateOf<String?>(null) }
     val planner = remember(container) { AutomationAiPlanner(container) }
     val scope = rememberCoroutineScope()
 

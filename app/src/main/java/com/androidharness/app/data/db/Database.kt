@@ -307,6 +307,9 @@ interface HarnessDao {
     @Query("UPDATE projects SET lastUsedAt = :at WHERE id = :id")
     suspend fun touchProject(id: String, at: Long)
 
+    @Query("UPDATE projects SET name = :name WHERE id = :id")
+    suspend fun renameProject(id: String, name: String)
+
     @Delete
     suspend fun deleteProject(project: ProjectEntity)
 

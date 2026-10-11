@@ -73,6 +73,7 @@ import androidx.compose.material3.Text
 import com.androidharness.app.ui.common.formatTokenCount
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
@@ -186,7 +187,7 @@ fun ChatScreen(
     // The composer carries its own selection so programmatic edits (mention
     // picks, share prefills) move the cursor instead of leaving it where the
     // user last typed. composerText mirrors value.text for the readers.
-    var composerValue by remember { mutableStateOf(TextFieldValue("")) }
+    var composerValue by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     val composerText = composerValue.text
     val scheduleKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var scheduleDraft by remember { mutableStateOf<com.androidharness.app.automation.AutomationTask?>(null) }

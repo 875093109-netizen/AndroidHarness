@@ -78,7 +78,7 @@ class GitHubWorkspaces(private val c: AppContainer) {
             .mapNotNull { (it as? JsonObject)?.string("full_name") }
     }
 
-    suspend fun importRepository(input: String): String = imports.withLock { withContext(Dispatchers.IO) {
+    suspend fun importRepository(input: String, activate: Boolean = true, onRegistered: (String) -> Unit = {}): String = imports.withLock { withContext(Dispatchers.IO) {
         val url = gitHubRepositoryUrl(input)
         requireGitTools()
         check(root.isDirectory || root.mkdirs()) { "Could not create the repository storage folder." }
@@ -99,7 +99,8 @@ class GitHubWorkspaces(private val c: AppContainer) {
             // Registration must finish once started, so cancellation cannot
             // leave a registered workspace pointing at a deleted clone.
             withContext(NonCancellable) {
-                c.workspace.addShellProject(folder.absolutePath)
+                val project = c.workspace.addShellProject(folder.absolutePath, activate)
+                onRegistered(project.id)
                 registered = true
             }
             "Imported $name into its own workspace."
