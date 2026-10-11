@@ -1,11 +1,16 @@
 package com.androidharness.app.ui.chat.components
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -41,8 +48,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.androidharness.app.R
 import com.androidharness.app.ui.common.HarnessMark
 import kotlinx.coroutines.delay
 
@@ -155,6 +167,11 @@ internal fun EmptyState(
                             )
                         }
                     }
+                    HorizontalDivider(
+                        color = scheme.outlineVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(start = 56.dp),
+                    )
+                    DonationRow()
                 }
             }
         } else {
@@ -165,5 +182,63 @@ internal fun EmptyState(
                 Text("Add provider")
             }
         }
+    }
+}
+
+// Verified creator profile: Sanuu, creator of AndroidHarness.
+private const val DONATION_URL = "https://buymeacoffee.com/sanuj7"
+
+@Composable
+private fun DonationRow() {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClickLabel = "Open Buy Me a Coffee") {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DONATION_URL)))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(
+                        context,
+                        "No browser available. Visit buymeacoffee.com/sanuj7 to donate.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFFFFDD00)),
+        ) {
+            // Official asset: https://cdn.buymeacoffee.com/assets/logos/icon-black.png
+            Image(
+                painterResource(R.drawable.ic_buy_me_a_coffee),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Donate", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Help us keep building",
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Icon(
+            Icons.Outlined.OpenInNew,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
