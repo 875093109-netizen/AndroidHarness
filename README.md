@@ -6,6 +6,7 @@
 [![Version](https://img.shields.io/badge/version-1.8-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3ddc84)](https://developer.android.com/about/versions/oreo)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Help_us_keep_building-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/sanuj7)
 
 **An AI coding agent that lives on your Android phone.**
 
