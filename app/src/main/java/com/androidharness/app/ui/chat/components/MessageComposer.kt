@@ -152,7 +152,7 @@ internal fun MessageComposer(
     modifier: Modifier = Modifier,
 ) {
     val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
-    val emulator = com.androidharness.app.ui.LocalEmulatorMode.current
+    val desktopInput = com.androidharness.app.ui.LocalDesktopInput.current
     val inputFocus = com.androidharness.app.ui.LocalComposerFocus.current
     val focusManager = LocalFocusManager.current
     val haptics = LocalHapticFeedback.current
@@ -212,7 +212,7 @@ internal fun MessageComposer(
         label = "sendScale",
     )
 
-    val actionSize = if (emulator) 36.dp else 52.dp
+    val actionSize = if (desktopInput) 36.dp else 52.dp
     val leading: @Composable () -> Unit = {
         // Leading button: discard recording when locked, otherwise attachments/skills
         if (isGroqActive && isGroqLocked) {
@@ -286,7 +286,7 @@ internal fun MessageComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = if (emulator) 8.dp else 16.dp, vertical = 2.dp),
+                        .padding(horizontal = if (desktopInput) 8.dp else 16.dp, vertical = 2.dp),
                 ) {
                     if (!attachedSkill.isNullOrBlank()) {
                         Surface(
@@ -318,7 +318,7 @@ internal fun MessageComposer(
 
                     Box(
                         modifier = Modifier.weight(1f),
-                        contentAlignment = if (emulator) Alignment.TopStart else Alignment.CenterStart,
+                        contentAlignment = if (desktopInput) Alignment.TopStart else Alignment.CenterStart,
                     ) {
                         if (value.text.isEmpty()) {
                             Text(
@@ -331,7 +331,7 @@ internal fun MessageComposer(
                                 },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = if (isInbuiltListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = if (emulator) 10.dp else 12.dp),
+                                modifier = Modifier.padding(vertical = if (desktopInput) 10.dp else 12.dp),
                             )
                         }
                         BasicTextField(
@@ -339,14 +339,14 @@ internal fun MessageComposer(
                             onValueChange = onValueChange,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = if (emulator) 44.dp else if (desktop) 72.dp else 44.dp,
-                                    max = if (emulator) 140.dp else 180.dp)
+                                .heightIn(min = if (desktopInput) 44.dp else if (desktop) 72.dp else 44.dp,
+                                    max = if (desktopInput) 140.dp else 180.dp)
                                 .verticalScroll(rememberScrollState())
                                 .then(inputFocus?.let { Modifier.focusRequester(it) } ?: Modifier)
                                 .semantics { contentDescription = "Message input" }
                                 .onFocusChanged { focused = it.isFocused }
                                 .onPreviewKeyEvent { event ->
-                                    if (emulator && !event.isCtrlPressed && event.key == Key.Tab) {
+                                    if (desktopInput && !event.isCtrlPressed && event.key == Key.Tab) {
                                         if (event.type == KeyEventType.KeyDown) focusManager.moveFocus(
                                             if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
                                         true
@@ -355,7 +355,7 @@ internal fun MessageComposer(
                                         true
                                     } else false
                                 }
-                                .padding(vertical = if (emulator) 10.dp else 12.dp),
+                                .padding(vertical = if (desktopInput) 10.dp else 12.dp),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface,
                             ),
@@ -556,7 +556,7 @@ internal fun MessageComposer(
             }
         }
     }
-    if (emulator) {
+    if (desktopInput) {
         val scheme = MaterialTheme.colorScheme
         Row(
             modifier = modifier.fillMaxWidth()

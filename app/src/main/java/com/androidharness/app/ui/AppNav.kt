@@ -325,7 +325,7 @@ fun AppNav(container: AppContainer) {
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalDesktopLayout provides desktopNavigation,
-        LocalEmulatorMode provides (settings.workspaceLayout == com.androidharness.app.data.WorkspaceLayoutMode.EMULATOR),
+        LocalDesktopInput provides (settings.workspaceLayout == com.androidharness.app.data.WorkspaceLayoutMode.DESKTOP),
         LocalDesktopNavigationGuard provides desktopGuard,
         LocalDesktopKeyboardRouter provides if (desktopNavigation) desktopKeyboard else null,
     ) {

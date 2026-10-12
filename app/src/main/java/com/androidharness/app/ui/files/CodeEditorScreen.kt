@@ -219,7 +219,7 @@ fun CodeEditorScreen(
         }
     }
 
-    val emulator by androidx.compose.runtime.rememberUpdatedState(com.androidharness.app.ui.LocalEmulatorMode.current)
+    val desktopInput by androidx.compose.runtime.rememberUpdatedState(com.androidharness.app.ui.LocalDesktopInput.current)
     val keyboardSave by androidx.compose.runtime.rememberUpdatedState<() -> Unit>({ if (!saving && dirty) save() })
     BackHandler(enabled = com.androidharness.app.ui.LocalWorkspacePaneActive.current && dirty && !saving) { requestNavigation(onBack) }
 
@@ -387,7 +387,7 @@ fun CodeEditorScreen(
                         factory = { ctx ->
                             CodeEditor(ctx).apply {
                                 setOnKeyListener { _, keyCode, event ->
-                                    if (emulator && event.isCtrlPressed && keyCode == android.view.KeyEvent.KEYCODE_S) {
+                                    if (desktopInput && event.isCtrlPressed && keyCode == android.view.KeyEvent.KEYCODE_S) {
                                         if (event.action == android.view.KeyEvent.ACTION_UP) keyboardSave()
                                         true
                                     } else false

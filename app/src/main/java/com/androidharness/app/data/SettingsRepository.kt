@@ -158,9 +158,8 @@ class SettingsRepository(private val context: Context) {
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.SYSTEM,
             dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: true,
-            workspaceLayout = prefs[Keys.WORKSPACE_LAYOUT]?.let {
-                runCatching { WorkspaceLayoutMode.valueOf(it) }.getOrNull()
-            } ?: WorkspaceLayoutMode.AUTO,
+            workspaceLayout = WorkspaceLayoutMode.fromStored(prefs[Keys.WORKSPACE_LAYOUT])
+                ?: WorkspaceLayoutMode.AUTO,
             activeProviderId = prefs[Keys.ACTIVE_PROVIDER] ?: com.androidharness.app.llm.HarnessProvider.ID,
             thinkingLevel = prefs[Keys.THINKING_LEVEL]
                 ?.let { runCatching { ThinkingLevel.valueOf(it) }.getOrNull() }

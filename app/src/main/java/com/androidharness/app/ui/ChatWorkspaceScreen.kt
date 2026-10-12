@@ -68,7 +68,7 @@ fun ChatWorkspaceScreen(
     val keyboardRouter = LocalDesktopKeyboardRouter.current
     val keyboardOwner = remember { Any() }
     val inheritedDesktop = LocalDesktopLayout.current
-    val emulator = settings.workspaceLayout == WorkspaceLayoutMode.EMULATOR
+    val desktopInput = settings.workspaceLayout == WorkspaceLayoutMode.DESKTOP
 
     githubProject?.let { (id, name) ->
         GitHubWorkspaceDialog(container, id, name, onOpenSettings = {
@@ -107,7 +107,7 @@ fun ChatWorkspaceScreen(
             guard.navigate { if (file != null) file = null else closePanel() }
         }
         fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-                    return if (!emulator) false else {
+                    return if (!desktopInput) false else {
                         val action: (() -> Unit)? = when {
                             event.isCtrlPressed && !event.isAltPressed && event.key == Key.L -> ::focusInput
                             event.isCtrlPressed && event.isAltPressed && event.key == Key.F -> { { showTool("Files") } }
@@ -134,7 +134,7 @@ fun ChatWorkspaceScreen(
             WorkspaceToolButton("Terminal", Icons.Outlined.Terminal, visible && tool == "Terminal", desktop) { showTool("Terminal") }
             if (desktop) WorkspaceAccessMode(chatState.permissionMode, viewModel::setPermissionMode)
         }
-        CompositionLocalProvider(LocalDesktopLayout provides desktop, LocalEmulatorMode provides emulator,
+        CompositionLocalProvider(LocalDesktopLayout provides desktop, LocalDesktopInput provides desktopInput,
             LocalComposerFocus provides inputFocus, LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
             Column(Modifier.fillMaxSize().then(if (showChrome) Modifier.statusBarsPadding() else Modifier)
                 .onPreviewKeyEvent { event -> if (keyboardRouter == null) handleKey(event) else false }) {

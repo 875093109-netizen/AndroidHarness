@@ -7,8 +7,8 @@ import com.androidharness.app.ui.files.EditorNavigationGuard
 internal val LocalDesktopLayout = staticCompositionLocalOf { false }
 internal val LocalDesktopNavigationGuard = staticCompositionLocalOf<EditorNavigationGuard?> { null }
 
-/** The richer composer is opt-in with Emulator mode. Auto and Phone retain their input UI. */
-internal val LocalEmulatorMode = staticCompositionLocalOf { false }
+/** The richer composer is opt-in with Desktop mode. Auto and Phone retain their input UI. */
+internal val LocalDesktopInput = staticCompositionLocalOf { false }
 internal val LocalComposerFocus = staticCompositionLocalOf<androidx.compose.ui.focus.FocusRequester?> { null }
 
 /** Root shortcuts also work before a user focuses a pane or text field. */

@@ -42,12 +42,12 @@ class DesktopInputDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val c get() = (instrumentation.targetContext.applicationContext as HarnessApp).container
 
-    @Test fun emulatorComposerSupportsNativeEditingAndSendsExactlyOnce() {
+    @Test fun desktopComposerSupportsNativeEditingAndSendsExactlyOnce() {
         val value = mutableStateOf(TextFieldValue(""))
         val sends = AtomicInteger()
         ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
-                CompositionLocalProvider(LocalDesktopLayout provides true, LocalEmulatorMode provides true) {
+                CompositionLocalProvider(LocalDesktopLayout provides true, LocalDesktopInput provides true) {
                     MaterialTheme { Column(Modifier.fillMaxSize().navigationBarsPadding(), verticalArrangement = Arrangement.Bottom) {
                         MessageComposer(false, value.value, null, { value.value = it }, {},
                             { sends.incrementAndGet() }, {}, {}, {})
@@ -57,7 +57,7 @@ class DesktopInputDeviceTest {
             await { find("Message input") != null }
             val inputBounds = bounds(requireNotNull(find("Message input")))
             val density = instrumentation.targetContext.resources.displayMetrics.density
-            assertTrue("Empty emulator input stays compact and visible",
+            assertTrue("Empty desktop input stays compact and visible",
                 inputBounds.height() / density in 20f..56f)
             assertTrue("Composer actions share the input row",
                 kotlin.math.abs(bounds(requireNotNull(find("Message actions"))).centerY() - inputBounds.centerY()) < 12 * density)
@@ -155,7 +155,7 @@ class DesktopInputDeviceTest {
         val first = c.sessions.createSession("Native input chat", project.id)
         val second = c.sessions.createSession("Native other chat", project.id)
         try {
-            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.EMULATOR)
+            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.DESKTOP)
             c.settings.setOnboardingDone(true)
             c.settings.setResumeLastChat(true)
             c.settings.setLastActiveSessionId(first)

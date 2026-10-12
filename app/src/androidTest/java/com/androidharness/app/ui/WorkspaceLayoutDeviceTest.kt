@@ -61,9 +61,9 @@ class WorkspaceLayoutDeviceTest {
                         } }
                     }
                 } }
-                scrollToChoice("Emulator")
-                tapLabel("Emulator")
-                await { runBlocking { c.settings.settings.first().workspaceLayout == WorkspaceLayoutMode.EMULATOR } }
+                scrollToChoice("Desktop")
+                tapLabel("Desktop")
+                await { runBlocking { c.settings.settings.first().workspaceLayout == WorkspaceLayoutMode.DESKTOP } }
                 screenshot("workspace-appearance-large-text.png")
                 tapLabel("Phone")
                 await { runBlocking { c.settings.settings.first().workspaceLayout == WorkspaceLayoutMode.PHONE } }
@@ -83,7 +83,7 @@ class WorkspaceLayoutDeviceTest {
         var vm: ChatViewModel? = null
         val width = mutableStateOf(1280f)
         try {
-            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.EMULATOR)
+            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.DESKTOP)
             instrumentation.runOnMainSync { vm = ChatViewModel(c, sid) }
             ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
                 fun mount() { scenario.onActivity { activity -> activity.setContent {
@@ -166,7 +166,7 @@ class WorkspaceLayoutDeviceTest {
     @Test fun desktopSettingsKeepThemeChoicesSeparateAndNavigateCategories() = runBlocking {
         val saved = c.settings.settings.first()
         try {
-            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.EMULATOR)
+            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.DESKTOP)
             ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
                 scenario.onActivity { activity -> activity.setContent {
                     val settings by c.settings.settings.collectAsState(initial = saved)
@@ -220,7 +220,7 @@ class WorkspaceLayoutDeviceTest {
         val first = c.sessions.createSession("Desktop workspace A", projects[0].id)
         val second = c.sessions.createSession("Desktop workspace B", projects[1].id)
         try {
-            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.EMULATOR)
+            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.DESKTOP)
             c.settings.setOnboardingDone(true)
             c.settings.setResumeLastChat(true)
             c.settings.setLastActiveSessionId(first)

@@ -73,7 +73,7 @@ fun TerminalScreen(
     }
     val input = inputValue.text
     fun setInput(text: String) { inputValue = TextFieldValue(text, TextRange(text.length)) }
-    val emulator = com.androidharness.app.ui.LocalEmulatorMode.current
+    val desktopInput = com.androidharness.app.ui.LocalDesktopInput.current
     var history by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(emptyList<String>()) }
     var historyIndex by remember { androidx.compose.runtime.mutableIntStateOf(history.size) }
     var historyDraft by remember { mutableStateOf("") }
@@ -196,7 +196,7 @@ fun TerminalScreen(
                         modifier = Modifier
                             .weight(1f)
                             .onPreviewKeyEvent { event ->
-                                if (!emulator) false else when (event.key) {
+                                if (!desktopInput) false else when (event.key) {
                                     Key.Enter, Key.NumPadEnter -> {
                                         if (event.type == KeyEventType.KeyUp) submit()
                                         true
