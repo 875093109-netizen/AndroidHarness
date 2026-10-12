@@ -39,6 +39,15 @@ class BackupEncryptionTest {
     }
 
     @Test fun shortPasswordIsRejected() {
-        assertThrows(IllegalArgumentException::class.java) { BackupEncryption.encrypt(byteArrayOf(1), "short".toCharArray()) }
+        for (short in listOf("", "12345")) {
+            assertThrows(IllegalArgumentException::class.java) { BackupEncryption.encrypt(byteArrayOf(1), short.toCharArray()) }
+        }
+    }
+
+    @Test fun sixCharacterPasswordRoundTrip() {
+        val plain = "private-api-key-and-settings".toByteArray()
+        val encrypted = BackupEncryption.encrypt(plain, "abc123".toCharArray())
+        assertArrayEquals(plain, BackupEncryption.decrypt(encrypted, "abc123".toCharArray()))
+        assertThrows(IllegalArgumentException::class.java) { BackupEncryption.decrypt(encrypted, "12345".toCharArray()) }
     }
 }

@@ -66,6 +66,35 @@ class SettingsBackupValidationTest {
         }
     }
 
+    @Test fun workingCustomHttpEndpointsSurviveEncryptedBackup() {
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        for (url in listOf("http://my_server:11434/v1", "https://例え.テスト/v1", "HTTPS://EXAMPLE.COM/v1", "http://[::1]:11434/v1")) {
+            val original = SettingsBackupFile(settings = AppSettings(activeProviderId = "test"), providers = listOf(provider(url = url)))
+            SettingsBackupValidation.validate(original)
+            val encrypted = BackupEncryption.encrypt(json.encodeToString(SettingsBackupFile.serializer(), original).toByteArray(), "backup test password".toCharArray())
+            val restored = json.decodeFromString(SettingsBackupFile.serializer(), BackupEncryption.decrypt(encrypted, "backup test password".toCharArray()).toString(Charsets.UTF_8))
+            SettingsBackupValidation.validate(restored)
+            org.junit.Assert.assertEquals(url, restored.providers.single().config.baseUrl)
+        }
+    }
+
+    @Test fun invalidSettingsExplainTheBlockerWithoutExposingConnectionSecrets() {
+        val cases = listOf(
+            SettingsBackupFile(settings = AppSettings(maxContextTokens = -1)) to "Run limits",
+            SettingsBackupFile(settings = AppSettings(voiceEngine = "unknown")) to "Voice",
+            SettingsBackupFile(settings = AppSettings(), providers = listOf(provider(url = "https://user:secret@example.com"))) to "provider URL",
+            SettingsBackupFile(settings = AppSettings(), providers = listOf(provider(url = "https://example.com/a path?token=secret"))) to "provider URL",
+            SettingsBackupFile(settings = AppSettings(), servers = listOf(McpServerConfig("secret", type = "unknown"))) to "MCP",
+        )
+        for ((file, hint) in cases) {
+            val error = assertThrows(SettingsBackupValidationException::class.java) { SettingsBackupValidation.validate(file) }
+            val displayed = settingsBackupExportError(error)
+            org.junit.Assert.assertTrue(displayed, displayed.contains(hint))
+            org.junit.Assert.assertFalse(displayed, displayed.contains("secret"))
+            org.junit.Assert.assertFalse(displayed, displayed.contains("example.com"))
+        }
+    }
+
     @Test fun reservedCredentialSlotsRejected() {
         assertThrows(IllegalArgumentException::class.java) {
             SettingsBackupValidation.validate(SettingsBackupFile(settings = AppSettings(), searchKeys = mapOf("github_pat" to "secret")))

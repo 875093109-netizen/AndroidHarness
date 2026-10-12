@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Serializable
 class SettingsBackupFile(
@@ -76,6 +77,8 @@ object SettingsBackupPolicy {
 
 /** Never show raw exceptions: provider URLs and file-provider errors may contain secrets. */
 fun settingsBackupExportError(error: Exception): String = when (error) {
+    is SettingsBackupValidationException -> "Export failed. ${error.problem.hint}"
+    is SettingsBackupCredentialsException -> "Export failed. Saved credentials could not be read. Check your API connections and search or voice keys."
     is SecurityException -> "Export failed. Choose a destination you can write to."
     is java.io.IOException -> "Export failed. Check the destination and available space, then retry. The file may be incomplete."
     is java.security.GeneralSecurityException -> "Export failed. Password encryption is unavailable on this device."
@@ -83,36 +86,66 @@ fun settingsBackupExportError(error: Exception): String = when (error) {
     else -> "Export failed. Check your settings and try again."
 }
 
+enum class SettingsBackupProblem(val hint: String) {
+    VERSION("This settings backup version is unsupported."),
+    CONNECTION_COUNT("The backup supports up to 100 API providers and 100 MCP servers."),
+    SKILLS("Some disabled skill names are too long or there are too many. Review Skills settings."),
+    MODEL_SELECTION("A selected model ID is too long. Review your model selections."),
+    VOICE("A saved voice setting is unsupported. Choose the voice engine and model again in Voice settings."),
+    PROVIDERS("A saved provider is invalid or duplicated. Review Manage providers in Models settings."),
+    SEARCH("A saved search setting is unsupported. Review Web search settings."),
+    MODEL_LIMITS("Saved model limits are outside the backup range. Review Run limits in Agent settings."),
+    PROVIDER_REFERENCE("A selected provider is missing. Choose your models again in Models and Subagent settings."),
+    PROVIDER_URL("A saved provider URL is invalid. Review Manage providers in Models settings."),
+    CUSTOM_MODELS("A custom model ID is empty or too long. Review Manage providers in Models settings."),
+    MCP("An MCP server name or transport is invalid, or names are duplicated. Review MCP servers settings."),
+}
+
+class SettingsBackupValidationException(val problem: SettingsBackupProblem) : IllegalArgumentException(problem.hint)
+private class SettingsBackupCredentialsException(cause: Exception) : Exception(cause)
+
 object SettingsBackupValidation {
+    private fun check(valid: Boolean, problem: SettingsBackupProblem) {
+        if (!valid) throw SettingsBackupValidationException(problem)
+    }
+
     fun validate(file: SettingsBackupFile) {
-        require(file.version == 1) { "Unsupported settings backup version." }
-        require(file.providers.size <= 100 && file.servers.size <= 100) { "Too many connections." }
-        require(file.settings.disabledSkills.size <= 1000 && file.settings.disabledSkills.all { it.length <= 500 }) { "Invalid skill preferences." }
-        require(listOfNotNull(file.settings.activeModel, file.settings.planningModel, file.settings.executionModel).all { it.length <= 500 }) { "Invalid selected model." }
-        require(file.settings.groqWhisperModel in setOf("whisper-large-v3", "whisper-large-v3-turbo")) { "Invalid voice model." }
-        require(file.providers.map { it.config.id }.distinct().size == file.providers.size) { "Duplicate providers." }
-        require(file.searchKeys.keys.all { it in setOf("brave", "tavily") }) { "Invalid credential slot." }
+        check(file.version == 1, SettingsBackupProblem.VERSION)
+        check(file.providers.size <= 100 && file.servers.size <= 100, SettingsBackupProblem.CONNECTION_COUNT)
+        check(file.settings.disabledSkills.size <= 1000 && file.settings.disabledSkills.all { it.length <= 500 }, SettingsBackupProblem.SKILLS)
+        check(listOfNotNull(file.settings.activeModel, file.settings.planningModel, file.settings.executionModel).all { it.length <= 500 }, SettingsBackupProblem.MODEL_SELECTION)
+        check(file.settings.groqWhisperModel in setOf("whisper-large-v3", "whisper-large-v3-turbo"), SettingsBackupProblem.VOICE)
+        check(file.providers.map { it.config.id }.distinct().size == file.providers.size, SettingsBackupProblem.PROVIDERS)
+        check(file.searchKeys.keys.all { it in setOf("brave", "tavily") }, SettingsBackupProblem.SEARCH)
         val s = file.settings
-        require(s.maxContextTokens in 8192..2_000_000 && s.maxOutputTokens in 1..1_000_000 && s.maxIterations in 0..10_000) { "Invalid model limits." }
-        require(s.webSearchProvider in setOf("keyless", "brave", "tavily")) { "Invalid search provider." }
-        require(s.voiceEngine in setOf("inbuilt", "groq")) { "Invalid voice engine." }
+        check(s.maxContextTokens in 8192..2_000_000 && s.maxOutputTokens in 1..1_000_000 && s.maxIterations in 0..10_000, SettingsBackupProblem.MODEL_LIMITS)
+        check(s.webSearchProvider in setOf("keyless", "brave", "tavily"), SettingsBackupProblem.SEARCH)
+        check(s.voiceEngine in setOf("inbuilt", "groq"), SettingsBackupProblem.VOICE)
         val ids = file.providers.map { it.config.id }.toSet() + HarnessProvider.ID
-        require(listOfNotNull(s.activeProviderId, s.planningProviderId, s.executionProviderId, s.subagentProviderId).all { it in ids }) { "Missing provider reference." }
+        check(listOfNotNull(s.activeProviderId, s.planningProviderId, s.executionProviderId, s.subagentProviderId).all { it in ids }, SettingsBackupProblem.PROVIDER_REFERENCE)
         file.providers.forEach {
-            require(!com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(it.config.id)) { "ChatGPT connections must be signed in on this device." }
-            require(it.config.id.isNotBlank() && it.config.name.length in 1..200 && it.customModels.size <= 1000) { "Invalid provider." }
-            val uri = java.net.URI(it.config.baseUrl)
-            require(!LocalModelCatalog.isLocal(it.config.id)) { "Local models are excluded from settings backups." }
-            require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null) { "Invalid provider URL." }
-            require(it.customModels.all { model -> model.length in 1..500 }) { "Invalid custom model." }
+            check(!com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(it.config.id), SettingsBackupProblem.PROVIDERS)
+            check(it.config.id.isNotBlank() && it.config.name.length in 1..200 && it.customModels.size <= 1000, SettingsBackupProblem.PROVIDERS)
+            check(!LocalModelCatalog.isLocal(it.config.id), SettingsBackupProblem.PROVIDERS)
+            // Use the same URL parser as API requests. java.net.URI rejects valid
+            // HTTP endpoints with Unicode or underscore hostnames, for example.
+            val url = it.config.baseUrl.toHttpUrlOrNull()
+            val uri = runCatching { java.net.URI(it.config.baseUrl) }.getOrNull()
+            check(url != null && uri != null && uri.scheme.lowercase() in setOf("http", "https") &&
+                !uri.rawAuthority.isNullOrBlank() && uri.rawUserInfo == null &&
+                url.encodedUsername.isEmpty() && url.encodedPassword.isEmpty(), SettingsBackupProblem.PROVIDER_URL)
+            check(it.customModels.all { model -> model.length in 1..500 }, SettingsBackupProblem.CUSTOM_MODELS)
         }
-        require(file.servers.map { it.name }.distinct().size == file.servers.size) { "Duplicate MCP servers." }
-        file.servers.forEach { require(it.name.length in 1..200 && it.type in setOf("stdio", "http", "sse")) { "Invalid MCP server." } }
+        check(file.servers.map { it.name }.distinct().size == file.servers.size, SettingsBackupProblem.MCP)
+        file.servers.forEach { check(it.name.length in 1..200 && it.type in setOf("stdio", "http", "sse"), SettingsBackupProblem.MCP) }
     }
 }
 
 class SettingsBackup(private val c: AppContainer) {
     private val json = Json { encodeDefaults = true }
+
+    private fun credential(read: () -> String?): String? = try { read() }
+        catch (e: Exception) { throw SettingsBackupCredentialsException(e) }
 
     suspend fun exportTo(uri: Uri, password: CharArray, includeKeys: Boolean) = withContext(Dispatchers.IO) {
         try {
@@ -121,12 +154,12 @@ class SettingsBackup(private val c: AppContainer) {
             val s = SettingsBackupPolicy.exportSettings(current, configs.map { it.id }.toSet() + HarnessProvider.ID)
             val providers = configs.map { config ->
                 BackupProvider(config, c.providers.customModels(config.id).map { it.id },
-                    if (includeKeys && config.id != HarnessProvider.ID) c.keys.getKey(config.id) else null)
+                    if (includeKeys && config.id != HarnessProvider.ID) credential { c.keys.getKey(config.id) } else null)
             }
             val file = SettingsBackupFile(settings = s, providers = providers,
                 servers = if (includeKeys) c.mcp.servers.value.map { it.copy(enabled = false) } else emptyList(),
-                searchKeys = if (includeKeys) listOf("brave", "tavily").mapNotNull { name -> c.keys.searchApiKey(name)?.let { name to it } }.toMap() else emptyMap(),
-                groqKey = if (includeKeys) c.keys.groqApiKey() else null)
+                searchKeys = if (includeKeys) listOf("brave", "tavily").mapNotNull { name -> credential { c.keys.searchApiKey(name) }?.let { name to it } }.toMap() else emptyMap(),
+                groqKey = if (includeKeys) credential { c.keys.groqApiKey() } else null)
             SettingsBackupValidation.validate(file)
             val plain = json.encodeToString(SettingsBackupFile.serializer(), file).toByteArray(Charsets.UTF_8)
             val encrypted = try { BackupEncryption.encrypt(plain, password) } finally { plain.fill(0) }

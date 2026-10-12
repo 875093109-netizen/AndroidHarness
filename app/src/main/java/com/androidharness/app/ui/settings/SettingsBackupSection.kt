@@ -7,13 +7,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.androidharness.app.AppContainer
+import com.androidharness.app.data.BackupEncryption
 import com.androidharness.app.data.SettingsBackup
 import com.androidharness.app.data.SettingsBackupFile
 import com.androidharness.app.data.settingsBackupExportError
@@ -31,6 +36,8 @@ internal fun SettingsBackupSection(container: AppContainer) {
     var source by remember { mutableStateOf<Uri?>(null) }
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var showConfirmation by remember { mutableStateOf(false) }
     var includeKeys by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -43,6 +50,8 @@ internal fun SettingsBackupSection(container: AppContainer) {
     fun clear() {
         password = ""
         confirmation = ""
+        showPassword = false
+        showConfirmation = false
         source = null
         destination = null
         preview = null
@@ -71,13 +80,25 @@ internal fun SettingsBackupSection(container: AppContainer) {
             text = {
                 SecureDialogEffect()
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (exporting) "Use at least 12 characters. A lost password cannot be recovered. Nothing is uploaded by the app; your chosen file provider may sync the encrypted file." else "Enter the backup password. Settings are not changed until you review and confirm.")
-                    OutlinedTextField(password, { if (it.length <= 1024) password = it }, label = { Text("Password") },
-                        singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(),
+                    Text(if (exporting) "Use at least ${BackupEncryption.MIN_PASSWORD_LENGTH} characters. A lost password cannot be recovered. Nothing is uploaded by the app; your chosen file provider may sync the encrypted file." else "Enter the backup password. Settings are not changed until you review and confirm.")
+                    OutlinedTextField(password, { if (it.length <= BackupEncryption.MAX_PASSWORD_LENGTH) password = it }, label = { Text("Password") },
+                        singleLine = true, enabled = !busy, visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }, enabled = !busy) {
+                                Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = if (showPassword) "Hide password" else "Show password")
+                            }
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
                     if (exporting) {
-                        OutlinedTextField(confirmation, { if (it.length <= 1024) confirmation = it }, label = { Text("Confirm password") },
-                            singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(),
+                        OutlinedTextField(confirmation, { if (it.length <= BackupEncryption.MAX_PASSWORD_LENGTH) confirmation = it }, label = { Text("Confirm password") },
+                            singleLine = true, enabled = !busy, visualTransformation = if (showConfirmation) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showConfirmation = !showConfirmation }, enabled = !busy) {
+                                    Icon(if (showConfirmation) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = if (showConfirmation) "Hide confirmation password" else "Show confirmation password")
+                                }
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
                         Row {
                             Checkbox(includeKeys, { includeKeys = it }, enabled = !busy)
@@ -90,10 +111,12 @@ internal fun SettingsBackupSection(container: AppContainer) {
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && password.length >= 12 && (!exporting || password == confirmation), onClick = {
+                TextButton(enabled = !busy && password.length >= BackupEncryption.MIN_PASSWORD_LENGTH && (!exporting || password == confirmation), onClick = {
                     val chars = password.toCharArray()
                     password = ""
                     confirmation = ""
+                    showPassword = false
+                    showConfirmation = false
                     val target = destination
                     val input = source
                     busy = true
