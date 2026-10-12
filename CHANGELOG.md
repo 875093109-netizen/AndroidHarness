@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0 (2026-10-12)
+
+### Added
+
+- **Desktop mode**: a workspace layout for wide screens such as tablets, desktop-mode phones, and emulators with a keyboard and mouse. Settings → Appearance now offers Workspace layout: Auto uses the desktop workspace only when the window is wide enough, Phone keeps chat and tools as separate screens, and Desktop forces it. In Desktop mode the app is one workspace: a persistent sidebar keeps projects, their chats, search, New chat, Projects, Scheduled tasks and Settings at hand, the conversation sits in a focused column, and Files, Changes and Terminal open in resizable panels beside it, each keeping its state while you move between them. Mouse and keyboard work like you would expect: right-click or long-press a chat for its actions, Tab and Shift+Tab move focus, Ctrl+L focuses the composer, Ctrl+Enter sends, Ctrl+N starts a chat, Ctrl+Shift+B toggles the sidebar, Ctrl+Alt+F/T/G opens Files, Terminal or GitHub, and Ctrl+S saves in the editor, while Enter runs a terminal command and Up/Down recall recent ones.
+
+### Fixed
+
+- **Settings export with local models**: local models are not portable, so the encrypted settings backup leaves them out and clears any model slot that pointed at one, instead of exporting a reference the receiving device cannot resolve, which is what made Export fail with "Export failed" on a device with a local model selected (issue #30). Backup files that still contain a local model have it dropped when they are read, so they still import, and a failed export now shows a plain sentence describing the actual problem instead of raw error text that could include provider URLs or secrets.
+
 ## 1.9 (2026-10-11)
 
 ### Added

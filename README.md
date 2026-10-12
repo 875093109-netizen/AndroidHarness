@@ -4,7 +4,7 @@
 <a href="https://buymeacoffee.com/sanuj7"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="72"></a>
 
 [![Debug build](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml/badge.svg)](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml)
-[![Version](https://img.shields.io/badge/version-1.9-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
+[![Version](https://img.shields.io/badge/version-2.0-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3ddc84)](https://developer.android.com/about/versions/oreo)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
