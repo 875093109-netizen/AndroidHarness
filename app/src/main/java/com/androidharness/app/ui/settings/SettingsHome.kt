@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -211,6 +212,7 @@ private fun settingsIcon(page: SettingsPage): ImageVector = when (page) {
     SettingsPage.GITHUB -> Icons.Outlined.Code
     SettingsPage.SEARCH -> Icons.Outlined.TravelExplore
     SettingsPage.MCP -> Icons.Outlined.Extension
+    SettingsPage.TELEGRAM -> Icons.AutoMirrored.Outlined.Send
     SettingsPage.WORKSPACE -> Icons.Outlined.Folder
     SettingsPage.ENVIRONMENT -> Icons.Outlined.Terminal
     SettingsPage.BACKUP -> Icons.Outlined.Archive

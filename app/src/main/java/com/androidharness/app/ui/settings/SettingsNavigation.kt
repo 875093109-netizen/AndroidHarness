@@ -21,6 +21,7 @@ internal enum class SettingsPage(
     PRIVACY("Privacy & security", "App lock, biometrics and screenshot access", "Personalize", "fingerprint pin authentication screenshots"),
     SEARCH("Web search", "Search provider and API credentials", "Connections", "brave tavily keyless internet"),
     MCP("Connected tools", "Add and configure MCP servers", "Connections", "mcp integrations servers transport"),
+    TELEGRAM("Telegram", "Pair your bot and preview remote control", "Connections", "telegram bot remote control pairing notifications gateway"),
     WORKSPACE("Workspaces", "Choose, add and manage your project folders", "Workspace & device", "storage files saf folder project remembered permissions grants revoke always"),
     ENVIRONMENT("Terminal & device", "Linux tools, storage permissions and background access", "Workspace & device", "shizuku shell packages environment battery optimization keep alive"),
     BACKUP("Backups", "Encrypted settings and chat backups", "App & data", "restore history archive transfer password providers keys encryption"),
@@ -107,6 +108,7 @@ internal fun settingsDeepLink(target: String): SettingsPage? = when (target) {
     "chatgpt" -> SettingsPage.CONNECTED_ACCOUNTS
     "planning" -> SettingsPage.MODELS
     "voice" -> SettingsPage.VOICE
+    "telegram" -> SettingsPage.TELEGRAM
     else -> null
 }
 

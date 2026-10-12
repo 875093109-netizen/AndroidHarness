@@ -147,6 +147,15 @@ class KeyStoreManager(context: Context) {
         prefs.edit().remove(KEY_GROQ_API).apply()
     }
 
+    /** Telegram setup and bot token share one encrypted record; excluded from portable backups. */
+    fun telegramConnection(): String? = prefs.getString("telegram_connection", null)
+
+    fun putTelegramConnection(value: String?) {
+        val editor = prefs.edit()
+        if (value == null) editor.remove("telegram_connection") else editor.putString("telegram_connection", value)
+        check(editor.commit()) { "Could not securely save Telegram setup." }
+    }
+
     private object McpServerNameSanitizer {
         fun sanitize(raw: String): String =
             raw.trim().lowercase().replace(Regex("[^a-z0-9_]+"), "_")

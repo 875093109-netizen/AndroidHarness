@@ -18,7 +18,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ShizukuState {
     NOT_INSTALLED,
@@ -30,6 +29,7 @@ enum class ShizukuState {
 /** Whether the in-server [HarnessUserService] is available for exec calls. */
 enum class UserServiceState {
     NOT_BOUND,
+    BINDING,
     BOUND_READY,
     BIND_FAILED,
 }
@@ -61,12 +61,6 @@ class ShizukuManager(
 
     private val _state = MutableStateFlow(ShizukuState.NOT_INSTALLED)
     val state: StateFlow<ShizukuState> = _state.asStateFlow()
-
-    private val _serviceState = MutableStateFlow(UserServiceState.NOT_BOUND)
-    val serviceState: StateFlow<UserServiceState> = _serviceState.asStateFlow()
-
-    @Volatile private var service: IHarnessService? = null
-    private val bindRequested = AtomicBoolean(false)
 
     /** This build's deployed copy; see [LinuxEnvironmentManager.deployedBaseFor]. */
     private val tmpBase: String = LinuxEnvironmentManager.deployedBaseFor(context.packageName)
@@ -125,26 +119,39 @@ class ShizukuManager(
         .debuggable(isDebuggable)
         .version(appVersionCode)
 
-    private val userServiceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            service = if (binder != null && binder.pingBinder()) {
-                IHarnessService.Stub.asInterface(binder)
-            } else null
-            _serviceState.value =
-                if (service != null) UserServiceState.BOUND_READY else UserServiceState.BIND_FAILED
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            service = null
-            bindRequested.set(false)
-            _serviceState.value = UserServiceState.NOT_BOUND
-            // The server may have restarted, rebind once it is back.
+    private val serviceBinding = ShizukuServiceBinding<IHarnessService>(
+        scope = scope,
+        isAlive = { it.asBinder().pingBinder() },
+        bind = { connected, disconnected ->
+            val connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                    connected(binder?.let(IHarnessService.Stub::asInterface))
+                }
+                override fun onServiceDisconnected(name: ComponentName?) = disconnected()
+                override fun onNullBinding(name: ComponentName?) = connected(null)
+                override fun onBindingDied(name: ComponentName?) = disconnected()
+            }
+            try {
+                Shizuku.bindUserService(userServiceArgs, connection)
+            } catch (e: Exception) {
+                // The SDK registers callbacks before asking its server to bind.
+                runCatching { Shizuku.unbindUserService(userServiceArgs, connection, false) }
+                throw e
+            }
+            val detach: (Boolean) -> Unit = { remove ->
+                Shizuku.unbindUserService(userServiceArgs, connection, remove)
+            }
+            detach
+        },
+        onDisconnected = {
             scope.launch {
                 delay(1_500)
                 refresh()
             }
-        }
-    }
+        },
+    )
+    val serviceState: StateFlow<UserServiceState> = serviceBinding.state
+    private val service: IHarnessService? get() = serviceBinding.service
 
     init {
         refresh()
@@ -155,9 +162,7 @@ class ShizukuManager(
         runCatching {
             Shizuku.addBinderDeadListener {
                 _state.value = ShizukuState.NOT_RUNNING
-                service = null
-                bindRequested.set(false)
-                _serviceState.value = UserServiceState.NOT_BOUND
+                serviceBinding.disconnect()
             }
         }
         runCatching {
@@ -195,7 +200,7 @@ class ShizukuManager(
         }
         workspaceWarning.onStatus(s)
         _state.value = s
-        if (s == ShizukuState.GRANTED) bindUserService()
+        if (s == ShizukuState.GRANTED) bindUserService() else serviceBinding.disconnect()
     }
 
     fun isGranted(): Boolean = _state.value == ShizukuState.GRANTED
@@ -224,36 +229,25 @@ class ShizukuManager(
      * API >= 10; silently degrades to Unavailable otherwise (callers fall back).
      */
     fun bindUserService() {
-        if (service != null) return
         val hasPermission = runCatching {
             Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         }.getOrDefault(false)
-        if (!hasPermission) return
-        if (!bindRequested.compareAndSet(false, true)) return
+        if (!hasPermission) {
+            serviceBinding.disconnect()
+            return
+        }
         val ok = runCatching {
             Shizuku.getVersion() >= 10
         }.getOrDefault(false)
         if (!ok) {
-            bindRequested.set(false)
-            _serviceState.value = UserServiceState.BIND_FAILED
+            serviceBinding.unavailable()
             return
         }
-        runCatching {
-            Shizuku.bindUserService(userServiceArgs, userServiceConnection)
-        }.onFailure {
-            bindRequested.set(false)
-            _serviceState.value = UserServiceState.BIND_FAILED
-        }
+        serviceBinding.connect()
     }
 
     fun unbindUserService() {
-        if (service == null && !bindRequested.get()) return
-        service = null
-        bindRequested.set(false)
-        runCatching {
-            Shizuku.unbindUserService(userServiceArgs, userServiceConnection, true)
-        }
-        _serviceState.value = UserServiceState.NOT_BOUND
+        serviceBinding.disconnect(remove = true)
     }
 
     /** True when the in-server service is connected and callable. */

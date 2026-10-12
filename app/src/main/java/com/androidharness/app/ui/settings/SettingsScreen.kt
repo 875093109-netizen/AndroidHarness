@@ -232,7 +232,7 @@ fun SettingsScreen(
                             .fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        if (page != SettingsPage.LOCAL_MODELS && page != SettingsPage.AGENT) SettingsPageIntro(page)
+                        if (page != SettingsPage.LOCAL_MODELS && page != SettingsPage.AGENT && page != SettingsPage.TELEGRAM) SettingsPageIntro(page)
                     when (page) {
                         SettingsPage.CONNECTED_ACCOUNTS -> ConnectedAccountsSection(container)
                         SettingsPage.MODELS -> {
@@ -273,6 +273,7 @@ fun SettingsScreen(
                         SettingsPage.GITHUB -> GitHubIntegrationSection(container)
                         SettingsPage.SEARCH -> WebSearchSection(container)
                         SettingsPage.MCP -> McpSection(container)
+                        SettingsPage.TELEGRAM -> TelegramSection(container)
                         SettingsPage.WORKSPACE -> {
                             RememberedPermissionsSection(container)
                             WorkspaceSection(
@@ -442,7 +443,12 @@ private fun TerminalSection(
     val appShellOk = envState is com.androidharness.app.data.env.EnvState.Ready
     val storageText = if (allFiles) "Granted ✓" else "Needs grant"
     val systemText = when (shizukuState) {
-        ShizukuState.GRANTED -> if (serviceState == UserServiceState.BOUND_READY) "Shizuku ✓" else "Connecting…"
+        ShizukuState.GRANTED -> when (serviceState) {
+            UserServiceState.BOUND_READY -> "Shizuku ✓"
+            UserServiceState.BINDING -> "Connecting…"
+            UserServiceState.BIND_FAILED -> "Connection failed"
+            UserServiceState.NOT_BOUND -> "Not connected"
+        }
         ShizukuState.RUNNING_NO_PERMISSION -> "Needs grant"
         ShizukuState.NOT_RUNNING -> "Start Shizuku"
         ShizukuState.NOT_INSTALLED -> "Not installed"
@@ -480,7 +486,7 @@ private fun TerminalSection(
                     title = "System paths & any folder",
                     subtitle = "ADB-shell privileges via Shizuku",
                     divider = false,
-                    trailing = { StatusText(systemText, ok = shizukuState == ShizukuState.GRANTED) },
+                    trailing = { StatusText(systemText, ok = shizukuState == ShizukuState.GRANTED && serviceState == UserServiceState.BOUND_READY) },
                 )
             }
         }
@@ -1631,7 +1637,12 @@ private fun ShizukuCard(
                             ShizukuState.NOT_INSTALLED -> "Not installed: optional."
                             ShizukuState.NOT_RUNNING -> "Installed, not running."
                             ShizukuState.RUNNING_NO_PERMISSION -> "Running: grant AndroidHarness access."
-                            ShizukuState.GRANTED -> "Connected: system paths unlocked."
+                            ShizukuState.GRANTED -> when (serviceState) {
+                                UserServiceState.BOUND_READY -> "Connected: shell privileges ready."
+                                UserServiceState.BINDING -> "Access granted. Connecting to the shell runner…"
+                                UserServiceState.BIND_FAILED -> "Access granted, but the shell runner could not connect. Retry the connection."
+                                UserServiceState.NOT_BOUND -> "Access granted. Shell runner not connected."
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1647,7 +1658,9 @@ private fun ShizukuCard(
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    TextButton(onClick = onRefresh) { Text("Re-check status") }
+                    TextButton(onClick = onRefresh, enabled = serviceState != UserServiceState.BINDING) {
+                        Text(if (serviceState == UserServiceState.BOUND_READY) "Re-check status" else "Retry connection")
+                    }
                 }
                 ShizukuState.RUNNING_NO_PERMISSION -> Button(onClick = onGrant) { Text("Grant Shizuku access") }
                 ShizukuState.NOT_RUNNING -> OutlinedButton(onClick = onRefresh) { Text("Refresh status") }

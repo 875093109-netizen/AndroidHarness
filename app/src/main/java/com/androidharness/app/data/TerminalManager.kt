@@ -5,6 +5,7 @@ import com.androidharness.app.agent.RunManager
 import com.androidharness.app.data.env.LinuxEnvironmentManager
 import com.androidharness.app.data.env.ShizukuManager
 import com.androidharness.app.data.env.ShizukuState
+import com.androidharness.app.data.env.UserServiceState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,8 +69,10 @@ class TerminalManager(
 
     init {
         scope.launch {
-            shizuku.state.collect { state ->
-                _state.update { it.copy(privileged = state == ShizukuState.GRANTED) }
+            kotlinx.coroutines.flow.combine(shizuku.state, shizuku.serviceState) { state, service ->
+                state == ShizukuState.GRANTED && service == UserServiceState.BOUND_READY
+            }.collect { ready ->
+                _state.update { it.copy(privileged = ready) }
             }
         }
     }
@@ -99,7 +102,7 @@ class TerminalManager(
     }
 
     fun setPrivileged(on: Boolean) {
-        _state.update { it.copy(privileged = on) }
+        _state.update { it.copy(privileged = on && shizuku.isGranted() && shizuku.isServiceReady()) }
     }
 
     private fun startAppShell() {

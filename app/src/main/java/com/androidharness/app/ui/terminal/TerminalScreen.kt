@@ -67,6 +67,9 @@ fun TerminalScreen(
     val remote = workspace as? com.androidharness.app.workspace.SshFs
     val state by terminal.state.collectAsStateWithLifecycle()
     val shizukuState by container.shizuku.state.collectAsStateWithLifecycle()
+    val shizukuServiceState by container.shizuku.serviceState.collectAsStateWithLifecycle()
+    val shizukuReady = shizukuState == com.androidharness.app.data.env.ShizukuState.GRANTED &&
+        shizukuServiceState == com.androidharness.app.data.env.UserServiceState.BOUND_READY
     val listState = rememberLazyListState()
     var inputValue by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))
@@ -109,7 +112,7 @@ fun TerminalScreen(
         topBar = {
             AppHeader(
                 title = "Terminal",
-                subtitle = if (remote != null) "SSH workspace" else if (state.privileged) "Shizuku (shell user)" else "App user",
+                subtitle = if (remote != null) "SSH workspace" else if (state.privileged && shizukuReady) "Shizuku (shell user)" else "App user",
                 onBack = onBack,
                 actions = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -120,9 +123,9 @@ fun TerminalScreen(
                             modifier = Modifier.size(17.dp),
                         )
                         Switch(
-                            checked = state.privileged && shizukuState == com.androidharness.app.data.env.ShizukuState.GRANTED,
+                            checked = state.privileged && shizukuReady,
                             onCheckedChange = { terminal.setPrivileged(it) },
-                            enabled = remote == null && shizukuState == com.androidharness.app.data.env.ShizukuState.GRANTED,
+                            enabled = remote == null && shizukuReady,
                         )
                     }
                     IconButton(onClick = { terminal.clear() }) {

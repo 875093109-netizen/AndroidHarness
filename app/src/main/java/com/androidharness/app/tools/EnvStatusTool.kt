@@ -44,7 +44,8 @@ class EnvStatusTool(
             ShizukuState.GRANTED -> when (shizuku.serviceState.value) {
                 UserServiceState.BOUND_READY -> "running and the privileged runner is connected ✓"
                 UserServiceState.NOT_BOUND -> "running and granted; privileged runner not connected yet"
-                UserServiceState.BIND_FAILED -> "running and granted, but the privileged runner could not bind (Shizuku API < 10?)"
+                UserServiceState.BINDING -> "running and granted; connecting to the privileged runner"
+                UserServiceState.BIND_FAILED -> "running and granted, but the privileged runner could not connect; retry in Terminal & device settings"
             }
         }
         val cwd = ctx.workspace.shellRoot ?: linuxEnv.shellFallbackRoot
