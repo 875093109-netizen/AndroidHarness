@@ -27,6 +27,8 @@ import com.androidharness.app.data.*
 import com.androidharness.app.ui.chat.ChatListTestActivity
 import com.androidharness.app.ui.chat.ChatViewModel
 import com.androidharness.app.ui.settings.WorkspaceLayoutSection
+import com.androidharness.app.ui.settings.SettingsScreen
+import com.androidharness.app.ui.theme.HarnessTheme
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -122,17 +124,26 @@ class WorkspaceLayoutDeviceTest {
                 scenario.onActivity { assertEquals("unsaved-original\n", editorIn(it.window.decorView)!!.text.toString()) }
                 screenshot("workspace-resized-editor.png")
                 click("Terminal")
-                await { find("Run") != null }
+                await { find("Unsaved changes") != null }
+                click("Cancel")
                 assertEquals("original\n", target.readText())
                 scenario.onActivity { assertEquals("unsaved-original\n", editorIn(it.window.decorView)!!.text.toString()) }
-                screenshot("workspace-terminal-dock.png")
-                click("Files")
+                click("Terminal")
                 await { find("Unsaved changes") != null }
                 click("Save & exit")
                 await { target.readText() == "unsaved-original\n" }
                 await { find("Run") != null }
+                val inputs = allNodes().filter { it.isEditable }
+                val chatBounds = Rect().also(inputs.first()::getBoundsInScreen)
+                val terminalBounds = Rect().also(inputs.last()::getBoundsInScreen)
+                assertTrue("Terminal belongs beside the conversation", terminalBounds.left >= chatBounds.right)
+                screenshot("workspace-terminal-panel.png")
+                click("Files")
+                await { find("Run") == null }
                 await { find("layout-fixture.txt") != null }
                 assertNotNull(find("Keep my chat draft"))
+                assertEquals("Only the toolbar and panel heading label Files", 2,
+                    allNodes().count { it.text?.toString() == "Files" })
                 screenshot("workspace-wide-files.png")
             }
         } finally {
@@ -142,6 +153,51 @@ class WorkspaceLayoutDeviceTest {
             c.settings.setWorkspaceLayout(saved.workspaceLayout)
             c.settings.setLastActiveSessionId(saved.lastActiveSessionId)
             root.deleteRecursively()
+        }
+    }
+
+    @Test fun desktopSettingsKeepThemeChoicesSeparateAndNavigateCategories() = runBlocking {
+        val saved = c.settings.settings.first()
+        try {
+            c.settings.setWorkspaceLayout(WorkspaceLayoutMode.EMULATOR)
+            ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    val settings by c.settings.settings.collectAsState(initial = saved)
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(LocalDesktopLayout provides true,
+                        LocalDensity provides Density(density.density, 1.5f)) {
+                        HarnessTheme(settings.themeMode, settings.dynamicColor) {
+                            SettingsScreen(c, onBack = {})
+                        }
+                    }
+                } }
+                await { find("Settings categories") != null }
+                scrollToChoice("Light")
+                val light = Rect().also(requireNotNull(find("Light"))::getBoundsInScreen)
+                val system = Rect().also(requireNotNull(find("System"))::getBoundsInScreen)
+                assertTrue("Light is separate from System", light.left >= system.right)
+                tapLabel("Light")
+                await { runBlocking { c.settings.settings.first().themeMode == ThemeMode.LIGHT } }
+                scrollToChoice("Dark")
+                val dark = Rect().also(requireNotNull(find("Dark"))::getBoundsInScreen)
+                val visibleLight = Rect().also(requireNotNull(find("Light"))::getBoundsInScreen)
+                assertTrue("Theme rows must not overlap", dark.top > visibleLight.bottom)
+                screenshot("desktop-settings-light.png")
+                tapLabel("Dark")
+                await { runBlocking { c.settings.settings.first().themeMode == ThemeMode.DARK } }
+                screenshot("desktop-settings-dark.png")
+                tapLabel("AMOLED")
+                await { runBlocking { c.settings.settings.first().themeMode == ThemeMode.AMOLED } }
+                screenshot("desktop-settings-amoled.png")
+                tapLabel("Agent behavior")
+                await { find("Default permission mode") != null }
+                tapLabel("Appearance")
+                await { find("Workspace layout") != null }
+                assertNotNull(find("Settings categories"))
+            }
+        } finally {
+            c.settings.setWorkspaceLayout(saved.workspaceLayout)
+            c.settings.setThemeMode(saved.themeMode)
         }
     }
 
@@ -207,7 +263,9 @@ class WorkspaceLayoutDeviceTest {
         await {
             if (find(text)?.isVisibleToUser == true) return@await true
             val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-            allNodes().firstOrNull { it.isScrollable }?.performAction(action)
+            allNodes().filter { it.isScrollable }.maxByOrNull {
+                Rect().also(it::getBoundsInScreen).left
+            }?.performAction(action)
             false
         }
     }
