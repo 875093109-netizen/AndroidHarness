@@ -121,7 +121,7 @@ fun FilesScreen(
     val statusSuccess = LocalStatusColors.current.success
     val fs by remember(sessionId) { container.workspace.forChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
 
-    var currentPath by remember { mutableStateOf(".") }
+    var currentPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(".") }
     var refreshTick by remember { mutableIntStateOf(0) }
     var filter by remember { mutableStateOf("") }
     var filterActive by remember { mutableStateOf(false) }
@@ -148,7 +148,7 @@ fun FilesScreen(
             selectedPaths = emptySet()
         }
     }
-    BackHandler(enabled = selecting || batchBusy) { closeSelection() }
+    BackHandler(enabled = com.androidharness.app.ui.LocalWorkspacePaneActive.current && (selecting || batchBusy)) { closeSelection() }
 
     // Session-change overlay; sentinel id keeps a live-but-empty flow flowing.
     val sessionForChanges = sessionId ?: "‹no-session›"

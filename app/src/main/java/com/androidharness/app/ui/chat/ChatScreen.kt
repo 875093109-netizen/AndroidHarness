@@ -1,5 +1,7 @@
 package com.androidharness.app.ui.chat
 
+import androidx.compose.foundation.layout.widthIn
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -165,6 +167,7 @@ fun ChatScreen(
     searchMessageId: String? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val desktopLayout = com.androidharness.app.ui.LocalDesktopLayout.current
     val currentProject by viewModel.activeWorkspace.collectAsStateWithLifecycle(initialValue = null)
     var githubProject by remember { mutableStateOf<Pair<String, String>?>(null) }
     val listState = rememberChatListState()
@@ -956,9 +959,11 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.TopCenter,
         ) {
             Column(
                 modifier = Modifier
+                    .then(if (desktopLayout) Modifier.widthIn(max = 880.dp) else Modifier)
                     .fillMaxSize()
                     .imePadding()
                     .nestedScroll(userScrollObserver),

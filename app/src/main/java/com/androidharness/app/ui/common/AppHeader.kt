@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,21 +43,24 @@ fun AppHeader(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
+    val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
     Column(
         modifier = modifier
-            .background(scheme.surface)
+            .background(if (desktop) scheme.surfaceContainerLow else scheme.surface)
             .statusBarsPadding(),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 60.dp)
+                .heightIn(min = if (desktop) 42.dp else 60.dp)
                 .padding(start = 4.dp, end = 8.dp),
         ) {
             when {
                 onBack != null -> IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(if (desktop) Icons.Outlined.Close else Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = if (desktop) "Close panel" else "Back",
+                        modifier = if (desktop) Modifier.padding(4.dp) else Modifier)
                 }
                 onMenu != null -> IconButton(onClick = onMenu) {
                     Icon(Icons.Filled.Menu, contentDescription = "Open navigation")
@@ -71,7 +75,7 @@ fun AppHeader(
                     title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    style = if (desktop) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMediumEmphasized,
                 )
                 if (subtitle != null) {
                     Text(

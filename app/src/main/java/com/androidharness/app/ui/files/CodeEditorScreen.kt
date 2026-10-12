@@ -97,6 +97,7 @@ fun CodeEditorScreen(
     initialLine: Int? = null,
     sessionId: String? = null,
     onBack: () -> Unit,
+    navigationGuard: EditorNavigationGuard? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -106,8 +107,12 @@ fun CodeEditorScreen(
     // ---- load state ----
     var loadState by remember(path) { mutableStateOf<Load>(Load.Loading) }
     val decoded = remember { mutableStateOf<EditorFileCodec.Decoded?>(null) }
-    val diskBaseline = remember { mutableStateOf("") }
-    val lastSavedText = remember { mutableStateOf("") }
+    val buffers: EditorBufferViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val buffer = remember(path, sessionId, fs?.displayPath) {
+        fs?.let { buffers.acquire("${sessionId.orEmpty()}:${it.displayPath}:$path") } ?: buffers.buffer
+    }
+    val diskBaseline = buffer.baseline
+    val lastSavedText = buffer.saved
 
     LaunchedEffect(path, fs) {
         if (fs == null) return@LaunchedEffect
@@ -133,8 +138,11 @@ fun CodeEditorScreen(
                 if (dec == null) loadState = Load.Binary(fileLength)
                 else {
                     decoded.value = dec
-                    diskBaseline.value = dec.text
-                    lastSavedText.value = dec.text
+                    if (buffer.text.value == null) {
+                        buffer.text.value = dec.text
+                        diskBaseline.value = dec.text
+                        lastSavedText.value = dec.text
+                    }
                     loadState = Load.Ready
                 }
             }
@@ -143,21 +151,37 @@ fun CodeEditorScreen(
 
     // ---- editor state ----
     var editorRef by remember { mutableStateOf<CodeEditor?>(null) }
-    var editing by remember { mutableStateOf(false) }
-    var dirty by remember { mutableStateOf(false) }
+    var editing by buffer.editing
+    var dirty by buffer.dirty
     var saving by remember { mutableStateOf(false) }
     var showExitPrompt by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var gotoOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var wordwrapOn by remember { mutableStateOf(false) }
+    var pendingNavigation by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     fun editorText(): String = editorRef?.text?.toString().orEmpty()
+    fun leave() {
+        val action = pendingNavigation ?: onBack
+        pendingNavigation = null
+        action()
+    }
+    fun requestNavigation(action: () -> Unit) {
+        if (saving) return
+        if (dirty && editorText() != lastSavedText.value) {
+            pendingNavigation = action
+            showExitPrompt = true
+        } else action()
+    }
+    androidx.compose.runtime.SideEffect { navigationGuard?.confirm = ::requestNavigation }
+    androidx.compose.runtime.DisposableEffect(navigationGuard) {
+        onDispose { navigationGuard?.confirm = null }
+    }
 
     fun save(thenExit: Boolean = false) {
         val dec = decoded.value ?: return
         val ed = editorRef ?: return
-        if (!ed.isEditable) return
         val preSave = lastSavedText.value
         val newText = editorText()
         saving = true
@@ -191,18 +215,11 @@ fun CodeEditorScreen(
                 .onFailure { e ->
                     Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
-            if (thenExit && result.isSuccess) onBack()
+            if (thenExit && result.isSuccess) leave()
         }
     }
 
-    BackHandler(enabled = dirty && !saving) {
-        if (editorText() == diskBaseline.value) {
-            dirty = false
-            onBack()
-        } else {
-            showExitPrompt = true
-        }
-    }
+    BackHandler(enabled = com.androidharness.app.ui.LocalWorkspacePaneActive.current && dirty && !saving) { requestNavigation(onBack) }
 
     Scaffold(
         containerColor = scheme.surface,
@@ -211,7 +228,7 @@ fun CodeEditorScreen(
                 title = path.substringAfterLast('/'),
                 subtitle = path,
                 onBack = {
-                    if (dirty && !saving && editorText() != diskBaseline.value) showExitPrompt = true else onBack()
+                    requestNavigation(onBack)
                 },
                 actions = {
                     IconButton(
@@ -372,16 +389,19 @@ fun CodeEditorScreen(
                                 isHighlightCurrentLine = false
                                 props.stickyScroll = false
                                 getComponent(EditorAutoCompletion::class.java)?.setEnabled(false)
-                                isEditable = false
+                                isEditable = editing
                                 setWordwrap(false)
                                 setEditorLanguage(BasicCodeLanguage(path))
-                                setText(decoded.value!!.text)
+                                setText(buffer.text.value ?: decoded.value!!.text)
                                 applyEditorTheme(this, scheme)
                                 // Dirty flag via the event bus, survives setText
                                 // swapping out the Content object.
                                 subscribeEvent(
                                     io.github.rosemoe.sora.event.ContentChangeEvent::class.java,
-                                ) { _, _ -> dirty = true }
+                                ) { _, _ ->
+                                    buffer.text.value = text.toString()
+                                    dirty = buffer.text.value != lastSavedText.value
+                                }
                                 editorRef = this
                             }
                         },
@@ -417,7 +437,7 @@ fun CodeEditorScreen(
 
     if (showExitPrompt) {
         AlertDialog(
-            onDismissRequest = { showExitPrompt = false },
+            onDismissRequest = { showExitPrompt = false; pendingNavigation = null },
             title = { Text("Unsaved changes") },
             text = { Text("${path.substringAfterLast('/')} has unsaved changes.") },
             confirmButton = {
@@ -427,8 +447,8 @@ fun CodeEditorScreen(
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { showExitPrompt = false }) { Text("Cancel") }
-                    TextButton(onClick = { showExitPrompt = false; dirty = false; onBack() }) {
+                    TextButton(onClick = { showExitPrompt = false; pendingNavigation = null }) { Text("Cancel") }
+                    TextButton(onClick = { showExitPrompt = false; dirty = false; buffer.text.value = lastSavedText.value; leave() }) {
                         Text("Discard")
                     }
                 }

@@ -1,5 +1,7 @@
 package com.androidharness.app.ui.chat.components
 
+import androidx.compose.material3.TextButton
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -100,6 +103,13 @@ internal fun MainHeader(
     var permissionMenu by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val thinkingOn = thinkingLevel != ThinkingLevel.OFF
+
+    if (com.androidharness.app.ui.LocalDesktopLayout.current) {
+        DesktopConversationHeader(sessionTitle, busy, pickerLabel, thinkingLevel, thinkingLevels, mode,
+            permissionMode, onPickModel, onSetThinking, onSetMode, onSetPermission,
+            onOpenContext, onOpenUndo, canUndo, onOpenGitHub, canOpenGitHub, onOpenWebPreview)
+        return
+    }
 
     Column(
         Modifier
@@ -318,6 +328,49 @@ internal fun MainHeader(
             }
         }
         HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+    }
+}
+
+@Composable
+private fun DesktopConversationHeader(
+    title: String, busy: Boolean, model: String, thinking: ThinkingLevel, levels: List<ThinkingLevel>,
+    mode: AgentMode, permission: PermissionMode,
+    onModel: () -> Unit, onThinking: (ThinkingLevel) -> Unit, onMode: (AgentMode) -> Unit,
+    onPermission: (PermissionMode) -> Unit, onContext: () -> Unit, onUndo: () -> Unit,
+    canUndo: Boolean, onGitHub: () -> Unit, canGitHub: Boolean, onPreview: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    var menu by remember { mutableStateOf(false) }
+    var thinkingMenu by remember { mutableStateOf(false) }
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+            HeaderModelPicker(model, onModel, Modifier.widthIn(max = 180.dp))
+            if (levels.isNotEmpty()) HeaderThinkingControl(thinking, levels, thinkingMenu, { thinkingMenu = it }, onThinking, onModel)
+            TextButton(onClick = { onMode(if (mode == AgentMode.PLAN) AgentMode.ACT else AgentMode.PLAN) }) {
+                Text(if (mode == AgentMode.PLAN) "Plan" else "Act", style = MaterialTheme.typography.labelMedium)
+            }
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.MoreVert, "Conversation actions", Modifier.size(18.dp))
+                }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem(text = { Text("Context & limits") }, onClick = { menu = false; onContext() })
+                    DropdownMenuItem(text = { Text("Web preview") }, onClick = { menu = false; onPreview() })
+                    DropdownMenuItem(text = { Text("GitHub") }, enabled = canGitHub, onClick = { menu = false; onGitHub() })
+                    DropdownMenuItem(text = { Text("Undo file changes") }, enabled = canUndo, onClick = { menu = false; onUndo() })
+                    HorizontalDivider()
+                    PermissionMode.entries.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.label) }, onClick = { menu = false; onPermission(option) },
+                            trailingIcon = { if (permission == option) Icon(Icons.Filled.Check, "Selected", Modifier.size(16.dp)) })
+                    }
+                }
+            }
+        }
+        HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f))
     }
 }
 

@@ -1,5 +1,17 @@
 package com.androidharness.app.ui.chat.components
 
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+
+import androidx.compose.ui.input.key.type
+
+import androidx.compose.ui.input.key.key
+
+import androidx.compose.ui.input.key.isCtrlPressed
+
+import androidx.compose.ui.input.key.KeyEventType
+
+import androidx.compose.ui.input.key.Key
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -135,6 +147,7 @@ internal fun MessageComposer(
     scheduleUnavailableReason: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
     val haptics = LocalHapticFeedback.current
     var focused by remember { mutableStateOf(false) }
 
@@ -195,7 +208,10 @@ internal fun MessageComposer(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+            .padding(start = if (desktop) 20.dp else 12.dp, end = if (desktop) 20.dp else 12.dp, top = 6.dp, bottom = if (desktop) 18.dp else 10.dp)
+            .then(if (desktop) Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(14.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp) else Modifier),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -307,6 +323,7 @@ internal fun MessageComposer(
                                     isInbuiltListening -> "Listening…"
                                     !attachedSkill.isNullOrBlank() -> "Add a note, or send…"
                                     busy -> "Queue message"
+                                    desktop -> "Describe a task…"
                                     else -> "Message your agent…"
                                 },
                                 style = MaterialTheme.typography.bodyLarge,
@@ -319,9 +336,15 @@ internal fun MessageComposer(
                             onValueChange = onValueChange,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 44.dp, max = 148.dp)
+                                .heightIn(min = if (desktop) 72.dp else 44.dp, max = 180.dp)
                                 .verticalScroll(rememberScrollState())
                                 .onFocusChanged { focused = it.isFocused }
+                                .onPreviewKeyEvent { event ->
+                                    if (desktop && event.isCtrlPressed && event.key == Key.Enter) {
+                                        if (event.type == KeyEventType.KeyUp && canSend) onSend()
+                                        true
+                                    } else false
+                                }
                                 .padding(vertical = 12.dp),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -339,7 +362,7 @@ internal fun MessageComposer(
                         .matchParentSize()
                         .border(
                             width = 1.dp,
-                            color = if (ringAlpha > 0f) {
+                            color = if (desktop) Color.Transparent else if (ringAlpha > 0f) {
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.55f * ringAlpha)
                             } else {
                                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)

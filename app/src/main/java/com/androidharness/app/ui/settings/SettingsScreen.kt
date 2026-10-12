@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -57,6 +59,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -152,7 +155,9 @@ fun SettingsScreen(
     var pendingDelete by remember { mutableStateOf<ProjectEntity?>(null) }
 
     var pageName by rememberSaveable { mutableStateOf<String?>(null) }
+    val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
     val page = pageName?.let { name -> SettingsPage.entries.firstOrNull { it.name == name } }
+        ?: if (desktop) SettingsPage.APPEARANCE else null
     // Label of the control a search result or deep link asked for, cleared once
     // the user has had a moment to see where they landed.
     var highlight by rememberSaveable { mutableStateOf<String?>(null) }
@@ -166,6 +171,7 @@ fun SettingsScreen(
     val homeScroll = rememberScrollState()
     fun goBack() {
         when {
+            desktop -> onBack()
             page != null -> pageName = null
             query.isNotBlank() -> query = ""
             else -> onBack()
@@ -199,24 +205,31 @@ fun SettingsScreen(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             AppHeader(
-                title = page?.title ?: "Settings",
+                title = if (desktop) "Settings" else page?.title ?: "Settings",
                 onBack = { goBack() },
             )
         },
     ) { padding ->
+        Row(Modifier.fillMaxSize().padding(padding)) {
+            if (desktop) {
+                DesktopSettingsNavigation(page, query, { query = it }, ::openPage,
+                    Modifier.width(240.dp).fillMaxHeight())
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
         if (page == null) {
             SettingsHome(
                 query = query,
                 onQueryChange = { query = it },
                 onOpen = ::openPage,
-                modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(homeScroll),
+                modifier = Modifier.fillMaxSize().verticalScroll(homeScroll),
             )
         } else {
             key(page) {
                 SettingsHighlightScope(highlight) {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(padding)
-                            .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
+                        modifier = Modifier.then(if (desktop) Modifier.widthIn(max = 880.dp) else Modifier)
+                            .fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         if (page != SettingsPage.LOCAL_MODELS && page != SettingsPage.AGENT) SettingsPageIntro(page)
@@ -281,6 +294,8 @@ fun SettingsScreen(
                         Spacer(Modifier.height(16.dp))
                     }
                 }
+            }
+        }
             }
         }
     }
@@ -1969,9 +1984,11 @@ private fun AgentsInstructionsDialog(container: AppContainer, onDismiss: () -> U
 @Composable
 private fun AppearanceSection(container: AppContainer, settings: AppSettings, scope: kotlinx.coroutines.CoroutineScope) {
     SettingsHeader("Appearance")
+    WorkspaceLayoutSection(settings.workspaceLayout) { scope.launch { container.settings.setWorkspaceLayout(it) } }
     SettingsPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsAnchor("Theme") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Theme", style = MaterialTheme.typography.titleSmall)
                 ThemeMode.entries.chunked(2).forEach { modes ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1985,6 +2002,7 @@ private fun AppearanceSection(container: AppContainer, settings: AppSettings, sc
                         }
                     }
                 }
+            }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             SettingsAnchor("Dynamic color") {

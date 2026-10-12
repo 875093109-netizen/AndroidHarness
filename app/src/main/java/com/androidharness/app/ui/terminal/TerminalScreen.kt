@@ -65,10 +65,12 @@ fun TerminalScreen(
     val state by terminal.state.collectAsStateWithLifecycle()
     val shizukuState by container.shizuku.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    var input by remember { mutableStateOf("") }
+    var input by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    val active = com.androidharness.app.ui.LocalWorkspacePaneActive.current
     val scheme = MaterialTheme.colorScheme
 
-    LaunchedEffect(workspace?.displayPath, state.busy) {
+    LaunchedEffect(workspace?.displayPath, state.busy, active) {
+        if (!active) return@LaunchedEffect
         workspace?.let { terminal.useWorkspace(it) }
         if (workspace != null) terminal.ensureStarted()
     }

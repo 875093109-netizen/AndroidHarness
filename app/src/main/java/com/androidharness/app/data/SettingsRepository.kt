@@ -26,6 +26,7 @@ data class AppSettings(
     val subagentModel: String? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
+    val workspaceLayout: WorkspaceLayoutMode = WorkspaceLayoutMode.AUTO,
     val activeProviderId: String? = null,
     val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
     val maxContextTokens: Int = DEFAULT_MAX_CONTEXT,
@@ -111,6 +112,7 @@ class SettingsRepository(private val context: Context) {
         val SUBAGENT_MODEL = stringPreferencesKey("subagent_model")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val WORKSPACE_LAYOUT = stringPreferencesKey("workspace_layout")
         val ACTIVE_PROVIDER = stringPreferencesKey("active_provider_id")
         val THINKING_LEVEL = stringPreferencesKey("thinking_level")
         val MAX_CONTEXT = intPreferencesKey("max_context_tokens")
@@ -156,6 +158,9 @@ class SettingsRepository(private val context: Context) {
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.SYSTEM,
             dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: true,
+            workspaceLayout = prefs[Keys.WORKSPACE_LAYOUT]?.let {
+                runCatching { WorkspaceLayoutMode.valueOf(it) }.getOrNull()
+            } ?: WorkspaceLayoutMode.AUTO,
             activeProviderId = prefs[Keys.ACTIVE_PROVIDER] ?: com.androidharness.app.llm.HarnessProvider.ID,
             thinkingLevel = prefs[Keys.THINKING_LEVEL]
                 ?.let { runCatching { ThinkingLevel.valueOf(it) }.getOrNull() }
@@ -204,6 +209,7 @@ class SettingsRepository(private val context: Context) {
         context.settingsStore.edit { p ->
             p[Keys.THEME_MODE] = s.themeMode.name
             p[Keys.DYNAMIC_COLOR] = s.dynamicColor
+            p[Keys.WORKSPACE_LAYOUT] = s.workspaceLayout.name
             p[Keys.THINKING_LEVEL] = s.thinkingLevel.name
             p[Keys.MAX_CONTEXT] = s.maxContextTokens
             p[Keys.MAX_OUTPUT] = s.maxOutputTokens
@@ -249,6 +255,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDynamicColor(enabled: Boolean) {
         context.settingsStore.edit { it[Keys.DYNAMIC_COLOR] = enabled }
+    }
+
+    suspend fun setWorkspaceLayout(mode: WorkspaceLayoutMode) {
+        context.settingsStore.edit { it[Keys.WORKSPACE_LAYOUT] = mode.name }
     }
 
     suspend fun setAllowScreenshots(enabled: Boolean) {

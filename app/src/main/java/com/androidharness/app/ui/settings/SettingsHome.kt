@@ -2,6 +2,8 @@ package com.androidharness.app.ui.settings
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,6 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.androidharness.app.ui.common.ProviderGlyph
 import androidx.compose.ui.unit.dp
 
@@ -111,6 +116,50 @@ internal fun SettingsHome(
 }
 
 @Composable
+internal fun DesktopSettingsNavigation(
+    selected: SettingsPage?, query: String, onQueryChange: (String) -> Unit,
+    onOpen: (SettingsPage, String?) -> Unit, modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val results = remember(query) { matchingSettingsEntries(query) }
+    Surface(modifier, color = scheme.surfaceContainerLow, contentColor = scheme.onSurface) {
+        Column(Modifier.fillMaxSize().semantics { contentDescription = "Settings categories" }) {
+            OutlinedTextField(query, onQueryChange, singleLine = true,
+                placeholder = { Text("Search settings", style = MaterialTheme.typography.bodySmall) },
+                leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
+                trailingIcon = { if (query.isNotBlank()) IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Filled.Close, "Clear search", Modifier.size(18.dp))
+                } },
+                textStyle = MaterialTheme.typography.bodySmall,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().padding(12.dp))
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                if (results.isEmpty()) item { Text("No matching settings", Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
+                results.groupBy { it.page.group }.forEach { (group, entries) ->
+                    item { Text(group, Modifier.padding(start = 12.dp, top = 16.dp, bottom = 6.dp),
+                        style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant) }
+                    items(entries, key = { "${it.page}:${it.title}" }) { entry ->
+                        val active = entry.page == selected
+                        Surface(onClick = { onOpen(entry.page, entry.anchor) },
+                            color = if (active) scheme.secondaryContainer else scheme.surfaceContainerLow,
+                            contentColor = if (active) scheme.onSecondaryContainer else scheme.onSurface,
+                            shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.heightIn(min = 44.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(settingsIcon(entry.page), null, Modifier.size(18.dp))
+                                Text(entry.title, style = MaterialTheme.typography.labelLarge, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun SettingsPageIntro(page: SettingsPage) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -188,6 +237,7 @@ internal fun ThemeChoice(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         color = if (selected) colors.secondaryContainer else colors.surface,
+        contentColor = if (selected) colors.onSecondaryContainer else colors.onSurface,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) colors.primary else colors.outlineVariant.copy(alpha = 0.4f)),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

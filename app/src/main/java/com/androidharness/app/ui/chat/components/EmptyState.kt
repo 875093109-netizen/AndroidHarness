@@ -1,5 +1,9 @@
 package com.androidharness.app.ui.chat.components
 
+import androidx.compose.material3.OutlinedButton
+
+import androidx.compose.foundation.layout.Arrangement
+
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -73,6 +77,23 @@ internal fun EmptyState(
     onAddProvider: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    if (com.androidharness.app.ui.LocalDesktopLayout.current) {
+        Column(Modifier.fillMaxWidth().padding(top = 120.dp, bottom = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            HarnessMark(size = 34.dp)
+            Text(if (hasProvider) "What do you want to build?" else "Connect a provider",
+                style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Text(if (hasProvider) "Start with an idea or create a new project." else "Connect a provider to get started.", style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant)
+            if (hasProvider) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onSuggestion("Set up a new project with a README") }) { Text("New project") }
+                    OutlinedButton(onClick = { onSuggestion("Build a simple HTML landing page") }) { Text("Build a page") }
+                }
+            } else Button(onClick = onAddProvider) { Text("Add provider") }
+        }
+        return
+    }
     val suggestions = listOf(
         Icons.Outlined.Terminal to "Create a Python hello world and run it",
         Icons.Outlined.Folder to "Explore my workspace and summarize it",

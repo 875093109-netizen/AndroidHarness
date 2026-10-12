@@ -1,5 +1,11 @@
 package com.androidharness.app.ui
 
+import androidx.compose.foundation.layout.fillMaxHeight
+
+import androidx.compose.foundation.layout.navigationBarsPadding
+
+import androidx.compose.foundation.layout.statusBarsPadding
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -108,7 +114,6 @@ import com.androidharness.app.data.AppSettings
 import com.androidharness.app.data.MessageHit
 import com.androidharness.app.data.db.ChatSearch
 import com.androidharness.app.data.db.SessionEntity
-import com.androidharness.app.ui.chat.ChatScreen
 import com.androidharness.app.ui.chat.ChatViewModel
 import com.androidharness.app.ui.projects.ProjectsScreen
 import com.androidharness.app.ui.projects.ProjectScreen
@@ -178,6 +183,12 @@ fun AppNav(container: AppContainer) {
             else -> "chat"
         }
     }
+
+    val desktopNavigation = com.androidharness.app.data.useWorkspacePanes(
+        settings.workspaceLayout, androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat(),
+        androidx.compose.ui.platform.LocalDensity.current.fontScale)
+    var sidebarVisible by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    val desktopGuard = remember { com.androidharness.app.ui.files.EditorNavigationGuard() }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
@@ -304,9 +315,13 @@ fun AppNav(container: AppContainer) {
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalDesktopLayout provides desktopNavigation,
+        LocalDesktopNavigationGuard provides desktopGuard,
+    ) {
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = drawerGesturesEnabled,
+        gesturesEnabled = !desktopNavigation && drawerGesturesEnabled,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -697,7 +712,29 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) {
-        Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().then(if (desktopNavigation) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier)) {
+            RetainedWorkspaceContent(desktopNavigation && sidebarVisible,
+                Modifier.width(if (desktopNavigation && sidebarVisible) 232.dp else 0.dp)) {
+                DesktopNavigationSidebar(allWorkspaces, sessions, currentSessionId, currentWorkspace?.id,
+                    runningSessionIds, currentRoute,
+                    onNewChat = { desktopGuard.navigate {
+                        scope.launch {
+                            currentWorkspace?.id?.let { container.workspace.setActiveProject(it) }
+                            openChat(null)
+                        }
+                    } },
+                    onChat = { sid -> desktopGuard.navigate { openChat(sid) } },
+                    onProjectChat = { project -> desktopGuard.navigate {
+                        scope.launch {
+                            val sid = container.sessions.createSession("New chat", project.id)
+                            openChat(sid)
+                        }
+                    } },
+                    onProjects = { desktopGuard.navigate { nav.navigate("projects") { launchSingleTop = true } } },
+                    onAutomation = { desktopGuard.navigate { nav.navigate("automation") { launchSingleTop = true } } },
+                    onSettings = { desktopGuard.navigate { nav.navigate("settings") { launchSingleTop = true } } })
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
         if (currentRoute?.startsWith("project") != true) {
             com.androidharness.app.ui.common.SshWorkspaceBar(container, activeFs as? com.androidharness.app.workspace.SshFs)
         }
@@ -722,11 +759,11 @@ fun AppNav(container: AppContainer) {
                 val vm: ChatViewModel = viewModel(factory = ChatViewModel.factory(container, null))
                 val draftState by vm.state.collectAsStateWithLifecycle()
                 androidx.compose.runtime.LaunchedEffect(draftState.sessionId) { draftSessionId = draftState.sessionId }
-                ChatScreen(
+                ChatWorkspaceScreen(
                     viewModel = vm,
                     onOpenDrawer = {
                         focusManager.clearFocus(force = true)
-                        scope.launch { drawerState.open() }
+                        if (desktopNavigation) sidebarVisible = !sidebarVisible else scope.launch { drawerState.open() }
                     },
                     onOpenFile = { path, line ->
                         nav.navigate("viewer/${encode(path)}?line=${line ?: 0}&session=${encode(vm.state.value.sessionId.orEmpty())}")
@@ -760,12 +797,12 @@ fun AppNav(container: AppContainer) {
                 val searchMessageId = entry.arguments?.getString("messageId")
                 val vm: ChatViewModel =
                     viewModel(factory = ChatViewModel.factory(container, sessionId))
-                ChatScreen(
+                ChatWorkspaceScreen(
                     viewModel = vm,
                     searchMessageId = searchMessageId,
                     onOpenDrawer = {
                         focusManager.clearFocus(force = true)
-                        scope.launch { drawerState.open() }
+                        if (desktopNavigation) sidebarVisible = !sidebarVisible else scope.launch { drawerState.open() }
                     },
                     onOpenFile = { path, line ->
                         val sid = vm.state.value.sessionId ?: sessionId
@@ -949,6 +986,9 @@ fun AppNav(container: AppContainer) {
         }
     }
 
+    }
+
+    }
     }
 
     com.androidharness.app.ui.common.ShizukuDisabledWarning(container.shizuku.workspaceWarning)
