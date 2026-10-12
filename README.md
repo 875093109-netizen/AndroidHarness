@@ -59,6 +59,7 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 - Chat backup: export every chat with its full message history to a JSON file and import it back on any device. The file holds chats and messages only, never API keys or settings.
 - Encrypted settings backup: API provider setup, custom API model IDs, and preferences in one encrypted file, with API keys and MCP configuration included optionally. Local models and their selections are excluded.
 - Workspace layout in Settings → Appearance: Auto, Phone, or Emulator. Wide windows use a desktop workspace with a persistent project/chat sidebar, a focused conversation, resizable file and change panels, and a right-side terminal panel. Narrow windows keep a compact layout.
+- Emulator controls: right-click, long-press, or use a chat's menu to manage it. Tab/Shift+Tab moves focus; Ctrl+L focuses the composer, Ctrl+Enter sends, Ctrl+N starts a chat, Ctrl+Shift+B toggles the sidebar, and Ctrl+Alt+F/T/G opens Files/Terminal/GitHub. Ctrl+S saves in the editor. Enter runs a terminal command; Up/Down recalls commands.
 
 ### Scheduled automations
 
