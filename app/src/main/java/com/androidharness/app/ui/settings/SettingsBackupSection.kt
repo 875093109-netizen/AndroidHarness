@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.androidharness.app.AppContainer
 import com.androidharness.app.data.SettingsBackup
 import com.androidharness.app.data.SettingsBackupFile
+import com.androidharness.app.data.settingsBackupExportError
 import com.androidharness.app.ui.common.SecureDialogEffect
 import com.androidharness.app.ui.common.SecureScreenEffect
 import com.androidharness.app.ui.common.ThinLinearProgress
@@ -51,7 +52,7 @@ internal fun SettingsBackupSection(container: AppContainer) {
     SettingsPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Settings backup", style = MaterialTheme.typography.titleSmall)
-            Text("Password-encrypted providers, custom models and preferences. Optional credentials include MCP configuration. Chats stay in their separate backup.",
+            Text("Password-encrypted API providers and preferences, with optional API keys and MCP configuration. Local models are excluded. Chats have a separate backup.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { message = null; exportPicker.launch("androidharness-settings.hbackup") }, enabled = !busy) { Text("Export") }
@@ -108,9 +109,9 @@ internal fun SettingsBackupSection(container: AppContainer) {
                                 source = null
                             }
                         } catch (e: CancellationException) { throw e }
-                        catch (_: Exception) {
+                        catch (e: Exception) {
                             failed = true
-                            message = if (exporting) "Export failed. The destination may contain an incomplete file." else "Could not unlock backup. Check the password and file."
+                            message = if (exporting) settingsBackupExportError(e) else "Could not unlock backup. Check the password and file."
                         } finally { chars.fill('\u0000'); busy = false }
                     }
                 }) { Text(if (exporting) "Encrypt" else "Unlock") }

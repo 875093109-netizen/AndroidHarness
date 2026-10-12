@@ -14,10 +14,9 @@ class SettingsBackupValidationTest {
         SettingsBackupValidation.validate(SettingsBackupFile(settings = AppSettings(activeProviderId = "test"), providers = listOf(provider())))
     }
 
-    @Test fun localModelReferenceDoesNotNeedHttpOrAnApiKey() {
+    @Test fun localModelsCannotEnterNewSettingsBackups() {
         val config = ProviderConfig("local-model:qwen-05b", "Local", ProviderType.OPENAI_COMPAT, "local://qwen-05b", "local-model:qwen-05b")
-        SettingsBackupValidation.validate(SettingsBackupFile(settings = AppSettings(activeProviderId = config.id), providers = listOf(BackupProvider(config))))
-        for (invalid in listOf(config.copy(baseUrl = "https://example.com"), config.copy(model = "other"), config.copy(id = "local-model:../escape"))) {
+        for (invalid in listOf(config, config.copy(baseUrl = "https://example.com"), config.copy(model = "other"), config.copy(id = "local-model:../escape"))) {
             assertThrows(IllegalArgumentException::class.java) {
                 SettingsBackupValidation.validate(SettingsBackupFile(settings = AppSettings(), providers = listOf(BackupProvider(invalid))))
             }

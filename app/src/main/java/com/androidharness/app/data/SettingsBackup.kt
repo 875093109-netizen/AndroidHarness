@@ -4,6 +4,7 @@ import android.net.Uri
 import com.androidharness.app.AppContainer
 import com.androidharness.app.llm.HarnessProvider
 import com.androidharness.app.llm.ProviderConfig
+import com.androidharness.app.local.LocalModelCatalog
 import com.androidharness.app.tools.mcp.McpServerConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -24,6 +25,64 @@ class SettingsBackupFile(
 @Serializable
 class BackupProvider(val config: ProviderConfig, val customModels: List<String> = emptyList(), val apiKey: String? = null)
 
+/** Local models and device sign-ins are not portable API connections. */
+object SettingsBackupPolicy {
+    private fun isLocal(config: ProviderConfig): Boolean =
+        LocalModelCatalog.isLocal(config.id) || config.baseUrl.startsWith("local://")
+
+    fun canExport(config: ProviderConfig): Boolean =
+        !isLocal(config) && !com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(config.id)
+
+    private fun filterSelections(settings: AppSettings, keep: (String) -> Boolean): AppSettings {
+        val active = settings.activeProviderId?.let(keep) == true
+        val planning = settings.planningProviderId?.let(keep) == true
+        val execution = settings.executionProviderId?.let(keep) == true
+        val subagent = settings.subagentProviderId?.let(keep) == true
+        return settings.copy(
+            activeProviderId = settings.activeProviderId.takeIf { active },
+            activeModel = settings.activeModel.takeIf { active },
+            planningProviderId = settings.planningProviderId.takeIf { planning },
+            planningModel = settings.planningModel.takeIf { planning },
+            executionProviderId = settings.executionProviderId.takeIf { execution },
+            executionModel = settings.executionModel.takeIf { execution },
+            subagentProviderId = settings.subagentProviderId.takeIf { subagent },
+            subagentModel = settings.subagentModel.takeIf { subagent },
+        )
+    }
+
+    fun exportSettings(settings: AppSettings, providerIds: Set<String>): AppSettings =
+        filterSelections(settings) { id ->
+            id in providerIds && !LocalModelCatalog.isLocal(id) &&
+                !com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(id)
+        }.copy(
+            pinnedSessions = emptySet(), archivedSessions = emptySet(), lastActiveSessionId = null,
+            permissionMode = com.androidharness.app.agent.PermissionMode.CONFIRM_RISKY,
+            biometricLockEnabled = false, biometricLockTimeoutMinutes = 0, allowScreenshots = false,
+        )
+
+    /** Older v1 files can contain local references; ignore them before preview and restore. */
+    fun withoutLocalModels(file: SettingsBackupFile): SettingsBackupFile {
+        val removedIds = file.providers.filter { isLocal(it.config) }.map { it.config.id }.toSet()
+        return SettingsBackupFile(
+            version = file.version,
+            settings = filterSelections(file.settings) { !LocalModelCatalog.isLocal(it) && it !in removedIds },
+            providers = file.providers.filterNot { isLocal(it.config) },
+            servers = file.servers,
+            searchKeys = file.searchKeys,
+            groqKey = file.groqKey,
+        )
+    }
+}
+
+/** Never show raw exceptions: provider URLs and file-provider errors may contain secrets. */
+fun settingsBackupExportError(error: Exception): String = when (error) {
+    is SecurityException -> "Export failed. Choose a destination you can write to."
+    is java.io.IOException -> "Export failed. Check the destination and available space, then retry. The file may be incomplete."
+    is java.security.GeneralSecurityException -> "Export failed. Password encryption is unavailable on this device."
+    is IllegalArgumentException -> "Export failed. Check provider connections, model settings and password length."
+    else -> "Export failed. Check your settings and try again."
+}
+
 object SettingsBackupValidation {
     fun validate(file: SettingsBackupFile) {
         require(file.version == 1) { "Unsupported settings backup version." }
@@ -43,12 +102,8 @@ object SettingsBackupValidation {
             require(!com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(it.config.id)) { "ChatGPT connections must be signed in on this device." }
             require(it.config.id.isNotBlank() && it.config.name.length in 1..200 && it.customModels.size <= 1000) { "Invalid provider." }
             val uri = java.net.URI(it.config.baseUrl)
-            if (com.androidharness.app.local.LocalModelCatalog.isLocal(it.config.id)) {
-                val id = it.config.id.removePrefix(com.androidharness.app.local.LocalModelCatalog.PROVIDER_PREFIX)
-                require(com.androidharness.app.local.LocalModelCatalog.find(id) != null && it.config.model == it.config.id && it.config.baseUrl == "local://$id") { "Invalid local model reference." }
-            } else {
-                require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null) { "Invalid provider URL." }
-            }
+            require(!LocalModelCatalog.isLocal(it.config.id)) { "Local models are excluded from settings backups." }
+            require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null) { "Invalid provider URL." }
             require(it.customModels.all { model -> model.length in 1..500 }) { "Invalid custom model." }
         }
         require(file.servers.map { it.name }.distinct().size == file.servers.size) { "Duplicate MCP servers." }
@@ -62,23 +117,9 @@ class SettingsBackup(private val c: AppContainer) {
     suspend fun exportTo(uri: Uri, password: CharArray, includeKeys: Boolean) = withContext(Dispatchers.IO) {
         try {
             val current = c.settings.settings.first()
-            val s = current.copy(
-                activeProviderId = current.activeProviderId.takeUnless(com.androidharness.app.chatgpt.ChatGptProtocol::isProvider),
-                activeModel = current.activeModel.takeUnless { com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(current.activeProviderId) },
-                planningProviderId = current.planningProviderId.takeUnless(com.androidharness.app.chatgpt.ChatGptProtocol::isProvider),
-                planningModel = current.planningModel.takeUnless { com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(current.planningProviderId) },
-                executionProviderId = current.executionProviderId.takeUnless(com.androidharness.app.chatgpt.ChatGptProtocol::isProvider),
-                executionModel = current.executionModel.takeUnless { com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(current.executionProviderId) },
-                subagentProviderId = current.subagentProviderId.takeUnless(com.androidharness.app.chatgpt.ChatGptProtocol::isProvider),
-                subagentModel = current.subagentModel.takeUnless { com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(current.subagentProviderId) },
-                pinnedSessions = emptySet(), archivedSessions = emptySet(), lastActiveSessionId = null,
-                permissionMode = com.androidharness.app.agent.PermissionMode.CONFIRM_RISKY,
-                biometricLockEnabled = false, biometricLockTimeoutMinutes = 0, allowScreenshots = false,
-            )
-            val localReferences = listOfNotNull(s.activeProviderId, s.planningProviderId, s.executionProviderId, s.subagentProviderId)
-                .filter(com.androidharness.app.local.LocalModelCatalog::isLocal)
-                .map { it.removePrefix(com.androidharness.app.local.LocalModelCatalog.PROVIDER_PREFIX) }.toSet()
-            val providers = (c.providers.providers.first() + c.localModels.configs(localReferences)).distinctBy { it.id }.filterNot { com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(it.id) }.map { config ->
+            val configs = c.providers.providers.first().distinctBy { it.id }.filter(SettingsBackupPolicy::canExport)
+            val s = SettingsBackupPolicy.exportSettings(current, configs.map { it.id }.toSet() + HarnessProvider.ID)
+            val providers = configs.map { config ->
                 BackupProvider(config, c.providers.customModels(config.id).map { it.id },
                     if (includeKeys && config.id != HarnessProvider.ID) c.keys.getKey(config.id) else null)
             }
@@ -90,7 +131,7 @@ class SettingsBackup(private val c: AppContainer) {
             val plain = json.encodeToString(SettingsBackupFile.serializer(), file).toByteArray(Charsets.UTF_8)
             val encrypted = try { BackupEncryption.encrypt(plain, password) } finally { plain.fill(0) }
             c.appContext.contentResolver.openOutputStream(uri, "wt")?.use { it.write(encrypted) }
-                ?: error("Cannot open backup destination.")
+                ?: throw java.io.IOException("Cannot open backup destination.")
         } finally { password.fill('\u0000') }
     }
 
@@ -110,19 +151,18 @@ class SettingsBackup(private val c: AppContainer) {
             val plain = BackupEncryption.decrypt(bytes, password)
             try {
                 json.decodeFromString(SettingsBackupFile.serializer(), plain.toString(Charsets.UTF_8))
+                    .let(SettingsBackupPolicy::withoutLocalModels)
                     .also(SettingsBackupValidation::validate)
             } finally { plain.fill(0) }
         } finally { password.fill('\u0000') }
     }
 
-    suspend fun restore(file: SettingsBackupFile) = withContext(Dispatchers.IO) {
+    suspend fun restore(backup: SettingsBackupFile) = withContext(Dispatchers.IO) {
+        val file = SettingsBackupPolicy.withoutLocalModels(backup)
         SettingsBackupValidation.validate(file)
         require(c.runManager.runningSessionIds.value.isEmpty()) { "Stop running tasks before restoring settings." }
         val ids = mutableMapOf(HarnessProvider.ID to HarnessProvider.ID)
-        file.providers.filter { com.androidharness.app.local.LocalModelCatalog.isLocal(it.config.id) }.forEach { entry ->
-            ids[entry.config.id] = entry.config.id
-        }
-        file.providers.filterNot { it.config.id == HarnessProvider.ID || com.androidharness.app.local.LocalModelCatalog.isLocal(it.config.id) }.forEach { entry ->
+        file.providers.filterNot { it.config.id == HarnessProvider.ID }.forEach { entry ->
             val p = entry.config
             val restored = c.providers.add(p.name + " (restored)", p.type, p.baseUrl, p.model, entry.apiKey.orEmpty())
             ids[p.id] = restored.id
