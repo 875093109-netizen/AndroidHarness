@@ -137,6 +137,9 @@ class WorkspaceLayoutDeviceTest {
                 val chatBounds = Rect().also(inputs.first()::getBoundsInScreen)
                 val terminalBounds = Rect().also(inputs.last()::getBoundsInScreen)
                 assertTrue("Terminal belongs beside the conversation", terminalBounds.left >= chatBounds.right)
+                val command = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    "echo keep-terminal-draft") }
+                assertTrue(inputs.last().performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, command))
                 screenshot("workspace-terminal-panel.png")
                 click("Files")
                 await { find("Run") == null }
@@ -144,6 +147,10 @@ class WorkspaceLayoutDeviceTest {
                 assertNotNull(find("Keep my chat draft"))
                 assertEquals("Only the toolbar and panel heading label Files", 2,
                     allNodes().count { it.text?.toString() == "Files" })
+                click("Terminal")
+                await { find("echo keep-terminal-draft") != null }
+                click("Files")
+                await { find("layout-fixture.txt") != null }
                 screenshot("workspace-wide-files.png")
             }
         } finally {
@@ -191,6 +198,7 @@ class WorkspaceLayoutDeviceTest {
                 screenshot("desktop-settings-amoled.png")
                 tapLabel("Agent behavior")
                 await { find("Default permission mode") != null }
+                scrollToChoice("Appearance", navigation = true)
                 tapLabel("Appearance")
                 await { find("Workspace layout") != null }
                 assertNotNull(find("Settings categories"))
@@ -259,12 +267,12 @@ class WorkspaceLayoutDeviceTest {
         return result
     }
     private fun find(text: String) = allNodes().firstOrNull { it.text?.toString()?.split('\n')?.contains(text) == true || it.contentDescription?.toString() == text }
-    private fun scrollToChoice(text: String, forward: Boolean = true) {
+    private fun scrollToChoice(text: String, forward: Boolean = true, navigation: Boolean = false) {
         await {
             if (find(text)?.isVisibleToUser == true) return@await true
             val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
             allNodes().filter { it.isScrollable }.maxByOrNull {
-                Rect().also(it::getBoundsInScreen).left
+                Rect().also(it::getBoundsInScreen).left * if (navigation) -1 else 1
             }?.performAction(action)
             false
         }

@@ -136,7 +136,9 @@ internal fun DesktopSettingsNavigation(
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                 if (results.isEmpty()) item { Text("No matching settings", Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
-                results.groupBy { it.page.group }.forEach { (group, entries) ->
+                results.groupBy { it.page.group }.toList().sortedBy { (group, _) ->
+                    when (group) { "Personalize" -> 0; "Your assistant" -> 1; else -> 2 }
+                }.forEach { (group, entries) ->
                     item { Text(group, Modifier.padding(start = 12.dp, top = 16.dp, bottom = 6.dp),
                         style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant) }
                     items(entries, key = { "${it.page}:${it.title}" }) { entry ->
