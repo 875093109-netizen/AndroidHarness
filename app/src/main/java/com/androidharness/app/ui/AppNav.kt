@@ -18,6 +18,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -77,6 +79,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -189,6 +192,11 @@ fun AppNav(container: AppContainer) {
         androidx.compose.ui.platform.LocalDensity.current.fontScale)
     var sidebarVisible by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     val desktopGuard = remember { com.androidharness.app.ui.files.EditorNavigationGuard() }
+    val desktopFocus = remember { FocusRequester() }
+    val desktopKeyboard = remember { DesktopKeyboardRouter() }
+    androidx.compose.runtime.LaunchedEffect(desktopNavigation) {
+        if (desktopNavigation) { androidx.compose.runtime.withFrameNanos { }; desktopFocus.requestFocus() }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
@@ -317,7 +325,9 @@ fun AppNav(container: AppContainer) {
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalDesktopLayout provides desktopNavigation,
+        LocalEmulatorMode provides (settings.workspaceLayout == com.androidharness.app.data.WorkspaceLayoutMode.EMULATOR),
         LocalDesktopNavigationGuard provides desktopGuard,
+        LocalDesktopKeyboardRouter provides if (desktopNavigation) desktopKeyboard else null,
     ) {
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -712,7 +722,18 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) {
-        Row(Modifier.fillMaxSize().then(if (desktopNavigation) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier)) {
+        Row(Modifier.fillMaxSize().focusRequester(desktopFocus).onPreviewKeyEvent { event ->
+            if (desktopNavigation && desktopKeyboard.handler?.invoke(event) == true) true
+            else if (!desktopNavigation || !event.isCtrlPressed) false
+            else when (event.key) {
+                Key.N -> { if (event.type == KeyEventType.KeyUp) desktopGuard.navigate { openChat(null) }; true }
+                Key.Comma -> { if (event.type == KeyEventType.KeyUp) desktopGuard.navigate {
+                    nav.navigate("settings") { launchSingleTop = true }
+                }; true }
+                Key.B -> if (event.isShiftPressed) { if (event.type == KeyEventType.KeyUp) sidebarVisible = !sidebarVisible; true } else false
+                else -> false
+            }
+        }.then(if (desktopNavigation) Modifier.focusable() else Modifier).then(if (desktopNavigation) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier)) {
             RetainedWorkspaceContent(desktopNavigation && sidebarVisible,
                 Modifier.width(if (desktopNavigation && sidebarVisible) 232.dp else 0.dp)) {
                 DesktopNavigationSidebar(allWorkspaces, sessions, currentSessionId, currentWorkspace?.id,
@@ -724,6 +745,7 @@ fun AppNav(container: AppContainer) {
                         }
                     } },
                     onChat = { sid -> desktopGuard.navigate { openChat(sid) } },
+                    onChatActions = { actionsSession = it },
                     onProjectChat = { project -> desktopGuard.navigate {
                         scope.launch {
                             val sid = container.sessions.createSession("New chat", project.id)
@@ -1077,7 +1099,16 @@ fun AppNav(container: AppContainer) {
                         actionsSession = null
                     }
                     SessionAction("Delete", destructive = true) {
-                        scope.launch { container.sessions.deleteSession(session) }
+                        val remove = {
+                            scope.launch {
+                                container.runManager.stopAndJoin(session.id)
+                                container.sessions.deleteSession(session)
+                                if (session.id == currentSessionId) openChat(null)
+                                else if (session.id == settings.lastActiveSessionId) container.settings.setLastActiveSessionId(null)
+                            }
+                            Unit
+                        }
+                        if (desktopNavigation && session.id == currentSessionId) desktopGuard.navigate(remove) else remove()
                         actionsSession = null
                     }
                 }

@@ -77,23 +77,7 @@ internal fun EmptyState(
     onAddProvider: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    if (com.androidharness.app.ui.LocalDesktopLayout.current) {
-        Column(Modifier.fillMaxWidth().padding(top = 120.dp, bottom = 40.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            HarnessMark(size = 34.dp)
-            Text(if (hasProvider) "What do you want to build?" else "Connect a provider",
-                style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-            Text(if (hasProvider) "Start with an idea or create a new project." else "Connect a provider to get started.", style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant)
-            if (hasProvider) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onSuggestion("Set up a new project with a README") }) { Text("New project") }
-                    OutlinedButton(onClick = { onSuggestion("Build a simple HTML landing page") }) { Text("Build a page") }
-                }
-            } else Button(onClick = onAddProvider) { Text("Add provider") }
-        }
-        return
-    }
+    val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
     val suggestions = listOf(
         Icons.Outlined.Terminal to "Create a Python hello world and run it",
         Icons.Outlined.Folder to "Explore my workspace and summarize it",
@@ -106,14 +90,15 @@ internal fun EmptyState(
         entered = true
     }
 
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
             .widthIn(max = 520.dp)
-            .padding(top = 72.dp, start = 8.dp, end = 8.dp, bottom = 24.dp),
+            .fillMaxWidth()
+            .padding(top = if (desktop) 24.dp else 72.dp, start = 8.dp, end = 8.dp, bottom = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        HarnessMark(size = 52.dp)
+        HarnessMark(size = if (desktop) 40.dp else 52.dp)
         Spacer(Modifier.height(20.dp))
         Text(
             if (hasProvider) "What do you want to build?" else "Connect a provider",
@@ -122,7 +107,7 @@ internal fun EmptyState(
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            if (hasProvider) "Your agent can read, write, search and run code in this workspace."
+            if (hasProvider) "Start with an idea or create a new project."
             else "Add an API key for OpenAI, Anthropic or Gemini to get started.",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
@@ -203,6 +188,7 @@ internal fun EmptyState(
                 Text("Add provider")
             }
         }
+    }
     }
 }
 

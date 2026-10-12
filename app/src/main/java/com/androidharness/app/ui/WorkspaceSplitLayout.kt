@@ -1,6 +1,10 @@
 package com.androidharness.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -44,6 +48,18 @@ internal fun WorkspaceSplitLayout(
                         progressBarRangeInfo = ProgressBarRangeInfo(fraction, minimum..maximum)
                         setProgress { onResize(it.coerceIn(minimum, maximum)); true }
                     }
+                    .pointerHoverIcon(PointerIcon(android.view.PointerIcon.TYPE_HORIZONTAL_DOUBLE_ARROW))
+                    .onKeyEvent { event ->
+                        val direction = when (event.key) {
+                            Key.DirectionLeft -> -1
+                            Key.DirectionRight -> 1
+                            else -> 0
+                        }
+                        if (direction == 0) false else {
+                            if (event.type == KeyEventType.KeyDown) onResize((fraction + direction * 0.03f).coerceIn(minimum, maximum))
+                            true
+                        }
+                    }.focusable()
                     .draggable(rememberDraggableState { delta -> onResize((fraction + delta / pixels).coerceIn(minimum, maximum)) }, Orientation.Horizontal),
                     contentAlignment = Alignment.Center) {
                     Box(Modifier.width(3.dp).height(36.dp).background(MaterialTheme.colorScheme.outlineVariant))

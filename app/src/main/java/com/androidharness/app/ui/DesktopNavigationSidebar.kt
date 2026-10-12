@@ -2,6 +2,12 @@ package com.androidharness.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +34,7 @@ internal fun DesktopNavigationSidebar(
     projects: List<ProjectEntity>, sessions: List<SessionEntity>, selectedSession: String?,
     selectedProject: String?, running: Set<String>, currentRoute: String?,
     onNewChat: () -> Unit, onChat: (String) -> Unit, onProjectChat: (ProjectEntity) -> Unit,
+    onChatActions: (SessionEntity) -> Unit,
     onProjects: () -> Unit, onAutomation: () -> Unit, onSettings: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -56,7 +63,7 @@ internal fun DesktopNavigationSidebar(
                 item(key = "project:${project.id}") {
                     Row(Modifier.fillMaxWidth().clickable {
                         collapsed = if (project.id in collapsed) collapsed - project.id else collapsed + project.id
-                    }.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    }.pointerHoverIcon(PointerIcon.Hand).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (project.id in collapsed) Icons.Outlined.ChevronRight else Icons.Outlined.KeyboardArrowDown,
                             null, Modifier.size(16.dp), tint = scheme.onSurfaceVariant)
                         Spacer(Modifier.width(6.dp))
@@ -71,15 +78,8 @@ internal fun DesktopNavigationSidebar(
                 }
                 if (project.id !in collapsed || query.isNotBlank()) {
                     items(chats, key = { it.id }) { chat ->
-                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
-                            .background(if (chat.id == selectedSession) scheme.surfaceContainerHighest else scheme.surfaceContainerLow,
-                                RoundedCornerShape(6.dp)).clickable { onChat(chat.id) }
-                            .heightIn(min = 36.dp).padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(chat.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (chat.id in running) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                        }
+                        DesktopChatRow(chat, chat.id == selectedSession, chat.id in running,
+                            onClick = { onChat(chat.id) }, onActions = { onChatActions(chat) })
                     }
                     if (chats.isEmpty() && query.isBlank()) item {
                         Text("No chats yet", Modifier.padding(start = 50.dp, top = 4.dp, bottom = 12.dp),
@@ -92,7 +92,8 @@ internal fun DesktopNavigationSidebar(
                 item { Text("RECENT CHATS", Modifier.padding(16.dp), style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant) }
                 items(unassigned, key = { it.id }) { chat ->
-                    DesktopSidebarAction(chat.title, Icons.Outlined.ChatBubbleOutline, chat.id == selectedSession) { onChat(chat.id) }
+                    DesktopChatRow(chat, chat.id == selectedSession, chat.id in running,
+                        onClick = { onChat(chat.id) }, onActions = { onChatActions(chat) })
                 }
             }
         }
@@ -110,9 +111,37 @@ private fun DesktopSidebarAction(label: String, icon: ImageVector, selected: Boo
     val scheme = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)
         .background(if (selected) scheme.surfaceContainerHighest else scheme.surfaceContainerLow, RoundedCornerShape(6.dp))
-        .clickable(onClick = onClick).heightIn(min = 38.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+        .clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand).heightIn(min = 38.dp).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(icon, null, Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
         Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DesktopChatRow(chat: SessionEntity, selected: Boolean, running: Boolean,
+    onClick: () -> Unit, onActions: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    var focused by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
+        .background(if (selected || focused) scheme.surfaceContainerHighest else scheme.surfaceContainerLow,
+            RoundedCornerShape(8.dp))
+        .secondaryClick(onActions).pointerHoverIcon(PointerIcon.Hand)
+        .onFocusChanged { focused = it.isFocused }
+        .onPreviewKeyEvent { event ->
+            if (event.key == Key.Menu || event.key == Key.F10 && event.isShiftPressed) {
+                if (event.type == KeyEventType.KeyUp) onActions()
+                true
+            } else false
+        }
+        .combinedClickable(onClick = onClick, onLongClick = onActions, onLongClickLabel = "Chat actions")
+        .heightIn(min = 40.dp).padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(chat.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (running) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        IconButton(onClick = onActions, modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon.Hand)) {
+            Icon(Icons.Outlined.MoreVert, "Actions for ${chat.title}", Modifier.size(16.dp))
+        }
     }
 }

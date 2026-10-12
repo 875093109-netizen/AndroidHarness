@@ -1,5 +1,9 @@
 package com.androidharness.app.ui.chat.components
 
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 
 import androidx.compose.ui.input.key.type
@@ -148,6 +152,9 @@ internal fun MessageComposer(
     modifier: Modifier = Modifier,
 ) {
     val desktop = com.androidharness.app.ui.LocalDesktopLayout.current
+    val emulator = com.androidharness.app.ui.LocalEmulatorMode.current
+    val inputFocus = com.androidharness.app.ui.LocalComposerFocus.current
+    val focusManager = LocalFocusManager.current
     val haptics = LocalHapticFeedback.current
     var focused by remember { mutableStateOf(false) }
 
@@ -205,19 +212,12 @@ internal fun MessageComposer(
         label = "sendScale",
     )
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = if (desktop) 20.dp else 12.dp, end = if (desktop) 20.dp else 12.dp, top = 6.dp, bottom = if (desktop) 18.dp else 10.dp)
-            .then(if (desktop) Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(14.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp) else Modifier),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    val actionSize = if (emulator) 36.dp else 52.dp
+    val leading: @Composable () -> Unit = {
         // Leading button: discard recording when locked, otherwise attachments/skills
         if (isGroqActive && isGroqLocked) {
             DiscardRecordingButton(
+                size = actionSize,
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onCancelGroqRecord()
@@ -229,9 +229,12 @@ internal fun MessageComposer(
                 onPickFile = onAttachFile,
                 onSchedule = onSchedule,
                 scheduleUnavailableReason = scheduleUnavailableReason,
+                size = actionSize,
             )
         }
 
+    }
+    val field: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
         if (isGroqActive) {
             if (isGroqTranscribing) {
                 Box(
@@ -283,7 +286,7 @@ internal fun MessageComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                        .padding(horizontal = if (emulator) 8.dp else 16.dp, vertical = 2.dp),
                 ) {
                     if (!attachedSkill.isNullOrBlank()) {
                         Surface(
@@ -315,7 +318,7 @@ internal fun MessageComposer(
 
                     Box(
                         modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart,
+                        contentAlignment = if (emulator) Alignment.TopStart else Alignment.CenterStart,
                     ) {
                         if (value.text.isEmpty()) {
                             Text(
@@ -328,7 +331,7 @@ internal fun MessageComposer(
                                 },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = if (isInbuiltListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 12.dp),
+                                modifier = Modifier.padding(vertical = if (emulator) 10.dp else 12.dp),
                             )
                         }
                         BasicTextField(
@@ -336,16 +339,23 @@ internal fun MessageComposer(
                             onValueChange = onValueChange,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = if (desktop) 72.dp else 44.dp, max = 180.dp)
+                                .heightIn(min = if (emulator) 44.dp else if (desktop) 72.dp else 44.dp,
+                                    max = if (emulator) 140.dp else 180.dp)
                                 .verticalScroll(rememberScrollState())
+                                .then(inputFocus?.let { Modifier.focusRequester(it) } ?: Modifier)
+                                .semantics { contentDescription = "Message input" }
                                 .onFocusChanged { focused = it.isFocused }
                                 .onPreviewKeyEvent { event ->
-                                    if (desktop && event.isCtrlPressed && event.key == Key.Enter) {
+                                    if (emulator && !event.isCtrlPressed && event.key == Key.Tab) {
+                                        if (event.type == KeyEventType.KeyDown) focusManager.moveFocus(
+                                            if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
+                                        true
+                                    } else if (desktop && event.isCtrlPressed && (event.key == Key.Enter || event.key == Key.NumPadEnter)) {
                                         if (event.type == KeyEventType.KeyUp && canSend) onSend()
                                         true
                                     } else false
                                 }
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = if (emulator) 10.dp else 12.dp),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface,
                             ),
@@ -373,17 +383,19 @@ internal fun MessageComposer(
             }
         }
 
+    }
+    val trailing: @Composable () -> Unit = {
         // Action button on the right.
         //
         // Every arm of this `when` follows the same shape: the outer Box owns the
-        // 52dp clickable area and the clip, and the inner Box carries the scale
+        // clickable area and the clip, and the inner Box carries the scale
         // animation. A scale applied over the clickable used to shrink the tap
         // target along with the artwork, down to ~45dp at the idle scale.
         when {
             showQueueSend -> {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(actionSize)
                         .clip(RoundedCornerShape(corner))
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -394,7 +406,7 @@ internal fun MessageComposer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(actionSize)
                             .graphicsLayer {
                                 scaleX = buttonScale
                                 scaleY = buttonScale
@@ -411,7 +423,7 @@ internal fun MessageComposer(
             isGroqActive && isGroqLocked -> {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(actionSize)
                         .clip(CircleShape)
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -422,7 +434,7 @@ internal fun MessageComposer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(actionSize)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center,
@@ -435,7 +447,7 @@ internal fun MessageComposer(
             showStopOnly -> {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(actionSize)
                         .clip(RoundedCornerShape(corner))
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -446,7 +458,7 @@ internal fun MessageComposer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(actionSize)
                             .graphicsLayer {
                                 scaleX = buttonScale
                                 scaleY = buttonScale
@@ -463,7 +475,7 @@ internal fun MessageComposer(
             canSend -> {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(actionSize)
                         .clip(RoundedCornerShape(corner))
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -474,7 +486,7 @@ internal fun MessageComposer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(actionSize)
                             .graphicsLayer {
                                 scaleX = buttonScale
                                 scaleY = buttonScale
@@ -496,6 +508,7 @@ internal fun MessageComposer(
                         progress = lockProgress,
                     )
                     HuliaMicButton(
+                        size = actionSize,
                         recording = isGroqActive,
                         cancelArmed = cancelArmed,
                         available = true,
@@ -520,7 +533,7 @@ internal fun MessageComposer(
                 // Inbuilt voice mode: Simple tap toggle without gesture overlays
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(actionSize)
                         .clip(RoundedCornerShape(corner))
                         .clickable { onToggleInbuiltVoice() }
                         .semantics { contentDescription = if (isInbuiltListening) "Stop voice input" else "Voice input" },
@@ -528,7 +541,7 @@ internal fun MessageComposer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(actionSize)
                             .graphicsLayer {
                                 scaleX = buttonScale
                                 scaleY = buttonScale
@@ -543,6 +556,34 @@ internal fun MessageComposer(
             }
         }
     }
+    if (emulator) {
+        val scheme = MaterialTheme.colorScheme
+        Row(
+            modifier = modifier.fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .background(scheme.surfaceContainerHigh, RoundedCornerShape(14.dp))
+                .border(1.dp, if (focused) scheme.primary else scheme.outlineVariant,
+                    RoundedCornerShape(14.dp))
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Box(Modifier.padding(bottom = 6.dp)) { leading() }
+            field()
+            Box(Modifier.padding(bottom = 6.dp)) { trailing() }
+        }
+    } else {
+        Row(
+            modifier = modifier.fillMaxWidth()
+                .padding(start = if (desktop) 20.dp else 12.dp, end = if (desktop) 20.dp else 12.dp,
+                    top = 6.dp, bottom = if (desktop) 18.dp else 10.dp)
+                .then(if (desktop) Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(14.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp) else Modifier),
+            verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) { leading(); field(); trailing() }
+    }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +893,7 @@ private fun HuliaMicButton(
     onLock: () -> Unit,
     onCancelArmedChange: (Boolean) -> Unit,
     onDrag: (Float, Float) -> Unit,
+    size: Dp = 52.dp,
 ) {
     val haptics = LocalHapticFeedback.current
 
@@ -898,7 +940,7 @@ private fun HuliaMicButton(
         if (recording) {
 Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(size)
                 // Scale the ghost only: it must sit behind the real button's
                 // 48dp+ touch area, not participate in it.
                 .graphicsLayer {
@@ -915,7 +957,7 @@ Box(
 
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(size)
                 // Drag translation stays on the interactive node so the button
                 // follows the finger, but the idle scale does not, otherwise the
                 // gesture area shrinks to ~45dp along with the artwork.
@@ -987,7 +1029,7 @@ Box(
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(size)
                     .graphicsLayer {
                         scaleX = buttonScale
                         scaleY = buttonScale
@@ -1012,6 +1054,7 @@ private fun ComposerLeadingButton(
     onPickFile: () -> Unit,
     onSchedule: (() -> Unit)?,
     scheduleUnavailableReason: String?,
+    size: Dp = 52.dp,
 ) {
     val haptics = LocalHapticFeedback.current
     var expanded by remember { mutableStateOf(false) }
@@ -1019,7 +1062,7 @@ private fun ComposerLeadingButton(
     Box {
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(size)
                 .clip(RoundedCornerShape(17.dp))
                 .clickable {
                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -1030,7 +1073,7 @@ private fun ComposerLeadingButton(
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(size)
                     .graphicsLayer {
                         scaleX = 0.86f
                         scaleY = 0.86f
@@ -1082,10 +1125,10 @@ private fun ComposerLeadingButton(
 }
 
 @Composable
-private fun DiscardRecordingButton(onClick: () -> Unit) {
+private fun DiscardRecordingButton(onClick: () -> Unit, size: Dp = 52.dp) {
     Box(
         modifier = Modifier
-            .size(52.dp)
+            .size(size)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.errorContainer)
             .clickable(onClick = onClick)

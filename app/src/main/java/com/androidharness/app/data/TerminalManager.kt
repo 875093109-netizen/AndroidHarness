@@ -52,6 +52,7 @@ class TerminalManager(
     private var sshJob: Job? = null
     private var cwd: File = linuxEnv.shellFallbackRoot
     private var remoteWorkspace: com.androidharness.app.workspace.SshFs? = null
+    private var workspacePath: String? = null
 
     private val marker = "__HCTERM_DONE__"
     private val maxLines = 1_500
@@ -85,10 +86,13 @@ class TerminalManager(
 
     fun useWorkspace(fs: com.androidharness.app.workspace.WorkspaceFs) {
         if (_state.value.busy) return
+        // cwd changes after `cd` and can use a different Android path alias.
+        // Rebinding the same workspace must not restart the shell or erase output.
+        if (workspacePath == fs.displayPath) return
         val remote = fs as? com.androidharness.app.workspace.SshFs
         val root = remote?.root?.let { File(it) } ?: fs.shellRoot ?: linuxEnv.shellFallbackRoot
-        if (remoteWorkspace?.displayPath == remote?.displayPath && root == cwd) return
         stopProcess()
+        workspacePath = fs.displayPath
         remoteWorkspace = remote
         cwd = root
         _state.update { it.copy(started = false, cwd = root.path) }

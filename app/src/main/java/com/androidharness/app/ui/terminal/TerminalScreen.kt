@@ -41,8 +41,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.androidharness.app.AppContainer
@@ -65,7 +68,23 @@ fun TerminalScreen(
     val state by terminal.state.collectAsStateWithLifecycle()
     val shizukuState by container.shizuku.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    var input by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var inputValue by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
+    val input = inputValue.text
+    fun setInput(text: String) { inputValue = TextFieldValue(text, TextRange(text.length)) }
+    val emulator = com.androidharness.app.ui.LocalEmulatorMode.current
+    var history by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var historyIndex by remember { androidx.compose.runtime.mutableIntStateOf(history.size) }
+    var historyDraft by remember { mutableStateOf("") }
+    fun submit() {
+        if (input.isBlank() || state.busy || workspace == null) return
+        history = (history + input).takeLast(100)
+        historyIndex = history.size
+        terminal.send(input, workspace)
+        setInput("")
+        historyDraft = ""
+    }
     val active = com.androidharness.app.ui.LocalWorkspacePaneActive.current
     val scheme = MaterialTheme.colorScheme
 
@@ -169,10 +188,36 @@ fun TerminalScreen(
                     modifier = Modifier.padding(start = 14.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
                 ) {
                     BasicTextField(
-                        value = input,
-                        onValueChange = { input = it },
+                        value = inputValue,
+                        onValueChange = { next ->
+                            if (next.text != inputValue.text) { historyIndex = history.size; historyDraft = next.text }
+                            inputValue = next
+                        },
                         modifier = Modifier
                             .weight(1f)
+                            .onPreviewKeyEvent { event ->
+                                if (!emulator) false else when (event.key) {
+                                    Key.Enter, Key.NumPadEnter -> {
+                                        if (event.type == KeyEventType.KeyUp) submit()
+                                        true
+                                    }
+                                    Key.DirectionUp -> if (history.isNotEmpty()) {
+                                        if (event.type == KeyEventType.KeyDown) {
+                                            historyIndex = (historyIndex - 1).coerceAtLeast(0)
+                                            setInput(history[historyIndex])
+                                        }
+                                        true
+                                    } else false
+                                    Key.DirectionDown -> if (history.isNotEmpty()) {
+                                        if (event.type == KeyEventType.KeyDown) {
+                                            historyIndex = (historyIndex + 1).coerceAtMost(history.size)
+                                            setInput(if (historyIndex == history.size) historyDraft else history[historyIndex])
+                                        }
+                                        true
+                                    } else false
+                                    else -> false
+                                }
+                            }
                             .padding(vertical = 8.dp),
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterStart) {
@@ -193,18 +238,12 @@ fun TerminalScreen(
                         ),
                         cursorBrush = SolidColor(scheme.primary),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = {
-                            terminal.send(input, workspace)
-                            input = ""
-                        }),
+                        keyboardActions = KeyboardActions(onSend = { submit() }),
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(6.dp))
                     IconButton(
-                        onClick = {
-                            terminal.send(input, workspace)
-                            input = ""
-                        },
+                        onClick = { submit() },
                         enabled = input.isNotBlank() && !state.busy,
                     ) {
                         Icon(
