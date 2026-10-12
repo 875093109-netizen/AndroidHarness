@@ -32,7 +32,7 @@ AndroidHarness is a native Android app, written in Kotlin with Jetpack Compose, 
 1. Install from [Google Play](https://play.google.com/store/apps/details?id=com.androidharness.app), or build from source below.
 2. Grant storage access. On Android 11 and up the app needs All files access so the shell and file tools can use real filesystem paths.
 3. Pick a model. Start instantly with the built-in keyless provider, add an API key in Settings, or download an on-device model from Settings → Local models.
-4. Optional but recommended: install [Shizuku](https://github.com/RikkaApps/Shizuku) or [Termux](https://github.com/termux) so shell commands run with proper permissions.
+4. Optional but recommended: install [Shizuku](https://github.com/RikkaApps/Shizuku) or install linux environment inside the app, so shell commands run with proper permissions.
 
 Open a workspace, point the agent at a project, and ask for a change. `/doctor` self-tests every tool family whenever something feels off.
 
