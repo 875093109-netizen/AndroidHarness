@@ -6,7 +6,7 @@ Telegram uses the same AndroidHarness chats, selected models, project folders, e
 
 1. Create a bot with Telegram's BotFather.
 2. Open **Settings → Telegram**, enter its token and verify the bot.
-3. Tap **Pair account**, then **Open Telegram to pair**. Send the prepared `/start` message to the bot. You can also copy the `/pair` command. Codes expire after ten minutes.
+3. Tap **Pair account**, then **Open bot and pair**. Send the prepared `/start` message to the bot. You can also copy the `/pair` command. Codes expire after ten minutes.
 4. Confirm the displayed account in AndroidHarness.
 5. Choose a project, an existing or new chat, and a model. Enable Telegram.
 
@@ -41,7 +41,7 @@ Pause stops reception while an existing agent task can continue. Stop cancels th
 
 Incoming requests and the Telegram cursor are saved together before acknowledgement. Accepted work survives reconnects. After process death, interrupted edits require an explicit retry/resume rather than silently repeating tools. A completed request can still deliver its saved result after the connection returns.
 
-Failed or uncertain replies appear in settings with **Resend**. Resending only sends the saved reply; it does not rerun the model or tools. Check Telegram first when delivery is uncertain, because the previous send may have reached it. Telegram rate limits use the server's retry delay. A bot already used by a webhook or another polling listener needs that other receiver stopped before AndroidHarness can listen.
+The **⋮** menu contains token, pairing, test-message and battery controls; **Help & commands** lists the bot commands. Failed or uncertain replies appear under **Saved work** with **Resend reply**. Resending only sends the saved reply; it does not rerun the model or tools. Check Telegram first when delivery is uncertain, because the previous send may have reached it. Telegram rate limits use the server's retry delay. A bot already used by a webhook or another polling listener needs that other receiver stopped before AndroidHarness can listen.
 
 Tokens, paired identities, queued remote commands and remote delivery state are device-local and excluded from portable/system backups.
 

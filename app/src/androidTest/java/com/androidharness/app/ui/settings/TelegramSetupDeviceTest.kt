@@ -41,7 +41,7 @@ class TelegramSetupDeviceTest {
             scenario.onActivity { activity -> activity.setContent { MaterialTheme { SettingsScreen(container, onBack = {}) } } }
             setText("telegram")
             click("Telegram")
-            await { it.text?.toString() == "Telegram remote control" }
+            await { it.text?.toString() == "Remote control" }
             await { it.contentDescription?.toString() == "Enable Telegram" }
             assertNull(find(instrumentation.uiAutomation.rootInActiveWindow) { it.text?.toString() == "Preview" })
             screenshot("telegram-official-settings.png")
@@ -80,16 +80,23 @@ class TelegramSetupDeviceTest {
                 until { fixture.setup.state.value.sessionId == "chat-a" }
                 click("kilo-auto/free"); click("inclusionai/ling-3.1-flash")
                 until { fixture.bridge.selectedModel.value == "inclusionai/ling-3.1-flash" }
+                click("More options", toTop = true)
                 click("Send test message")
                 until { fixture.api.sent.any { it.text.contains("paired account are connected") } }
-                click("Telegram commands")
+                click("Help & commands")
                 await { it.text?.toString()?.contains("/stop") == true }
                 click("Done")
+                click("More options", toTop = true)
+                await { it.text?.toString() == "Change token" }
+                await { it.text?.toString() == "Pair again" }
+                click("Change token")
+                click("Cancel")
+                screenshot("telegram-settings-paired.png")
             }
-            launch(fixture, 1.5f).use {
-                await { it.text?.toString() == "Telegram remote control" }
+            launch(fixture, 1.5f, dark = true).use {
+                await { it.text?.toString() == "Remote control" }
                 screenshot("telegram-official-large-text.png")
-                click("Telegram commands")
+                click("Help & commands")
                 screenshot("telegram-official-commands.png")
                 click("Done")
             }
@@ -124,7 +131,7 @@ class TelegramSetupDeviceTest {
         } finally { runBlocking { fixture.manager.stopAndPause() } }
     }
 
-    private fun launch(fixture: TelegramUiFixture, fontScale: Float): ActivityScenario<ChatListTestActivity> {
+    private fun launch(fixture: TelegramUiFixture, fontScale: Float, dark: Boolean = false): ActivityScenario<ChatListTestActivity> {
         val scenario = ActivityScenario.launch(ChatListTestActivity::class.java)
         scenario.onActivity { activity -> activity.setContent {
             val density = LocalDensity.current
@@ -133,7 +140,7 @@ class TelegramSetupDeviceTest {
                 listOf(ProviderConfig("fixture", "Fixture provider", ProviderType.OPENAI_COMPAT, "http://127.0.0.1", model)),
                 ChatModelSelection(active = ChatModelChoice("fixture", model)))
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
-                MaterialTheme { Surface(Modifier.fillMaxSize()) {
+                MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) { Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         TelegramSettingsContent(fixture.manager, listOf(TelegramChoiceItem("project-a", "Demo project"), TelegramChoiceItem("project-b", "Other project")),
                             listOf(TelegramChoiceItem("chat-a", "Existing chat")), state)
@@ -170,7 +177,7 @@ class TelegramSetupDeviceTest {
         while (current != null) { if (current.isClickable) return current; current = current.parent }
         return null
     }
-    private fun click(text: String) {
+    private fun click(text: String, toTop: Boolean = false) {
         repeat(16) {
             val node = find(instrumentation.uiAutomation.rootInActiveWindow) {
                 (it.text?.toString() == text || it.contentDescription?.toString() == text) && it.isVisibleToUser && clickable(it) != null
@@ -181,7 +188,9 @@ class TelegramSetupDeviceTest {
                 assertTrue(target.performAction(AccessibilityNodeInfo.ACTION_CLICK)); SystemClock.sleep(200); return
             }
             val metrics = instrumentation.targetContext.resources.displayMetrics
-            instrumentation.uiAutomation.executeShellCommand("input swipe ${metrics.widthPixels / 2} ${(metrics.heightPixels * .8f).toInt()} ${metrics.widthPixels / 2} ${(metrics.heightPixels * .3f).toInt()} 300").close()
+            val start = if (toTop) .3f else .8f
+            val end = if (toTop) .8f else .3f
+            instrumentation.uiAutomation.executeShellCommand("input swipe ${metrics.widthPixels / 2} ${(metrics.heightPixels * start).toInt()} ${metrics.widthPixels / 2} ${(metrics.heightPixels * end).toInt()} 300").close()
             SystemClock.sleep(350)
         }
         error("Telegram control unavailable: $text")
