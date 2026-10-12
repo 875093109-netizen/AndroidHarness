@@ -63,6 +63,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         container = (application as HarnessApp).container
         AgentService.startPersistent(this)
+        container.telegram.restoreIfEnabled()
 
         // The foreground service + run-result notifications need this on 13+.
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -243,6 +244,9 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleSessionIntent(intent: Intent?) {
+        if (intent?.getStringExtra(com.androidharness.app.telegram.TelegramService.EXTRA_SETTINGS) == "telegram") {
+            container.pendingSettingsScroll.value = "telegram"
+        }
         val sessionId = intent?.getStringExtra(AgentService.EXTRA_SESSION_ID) ?: return
         // AppNav observes this to deep-link into the session's chat.
         container.pendingSessionId.tryEmit(sessionId)

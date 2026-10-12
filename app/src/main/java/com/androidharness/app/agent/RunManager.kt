@@ -16,6 +16,7 @@ import com.androidharness.app.llm.ProviderConfig
 import com.androidharness.app.llm.RequestOptions
 import com.androidharness.app.workspace.WorkspaceManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,7 @@ class RunManager(
 ) {
 
     val controls = TaskControlStore(java.io.File(context.filesDir, "task-controls"))
+    val remoteCompletions = RunCompletionStore(java.io.File(context.filesDir, "telegram/run-completions"))
     private val followUps = RunFollowUps(controls)
 
     /** Live, per-session run state the UI mirrors. */
@@ -129,6 +131,7 @@ class RunManager(
     }
     private val states = mutableMapOf<String, MutableStateFlow<LiveRunState>>()
     private val jobs = mutableMapOf<String, Job>()
+    private val followUpJobs = mutableMapOf<String, Job>()
     private val queueWrites = mutableMapOf<String, MutableSet<Job>>()
     private val turnIds = mutableMapOf<String, String>()
     private val allowedTools = mutableMapOf<String, MutableSet<String>>()
@@ -189,6 +192,10 @@ class RunManager(
 
     fun isRunning(sessionId: String?): Boolean =
         sessionId != null && synchronized(lock) { jobs[sessionId]?.isActive == true }
+
+    fun hasPendingFollowUp(sessionId: String): Boolean = synchronized(lock) {
+        followUpJobs[sessionId]?.isActive == true || jobs[sessionId]?.let { !it.isCompleted } == true
+    }
 
     /** What the run notification should say right now. */
     fun actionText(s: LiveRunState): String? = when {
@@ -462,6 +469,10 @@ class RunManager(
                 promptJob?.cancel()
                 val usage = budget.usage()
                 val cancelled = live.value.cancelled
+                if (record.initialPromptId.startsWith("telegram-")) runCatching {
+                    remoteCompletions.save(RunCompletion(record.initialPromptId, sid, turnId, completed, cancelled,
+                        if (completed || cancelled) null else controls.flow(sid).value.reason ?: live.value.error ?: "Task interrupted"))
+                }.onFailure { live.update { it.copy(error = "Could not save the remote run outcome. Open this chat to review its results.") } }
                 runCatching { controls.update(sid) { it.copy(status = if (completed || cancelled) "idle" else "paused", completed = completed,
                     reason = if (completed || cancelled) null else it.reason ?: live.value.error ?: "Task interrupted",
                     usedTokens = usage.first, usedCost = usage.second, elapsedMs = usage.third) } }
@@ -508,7 +519,7 @@ class RunManager(
                     val result = if (notifyOnFinish) notifyFinished(sid, if (completed) live.value.error else
                         controls.flow(sid).value.reason ?: "Task paused") else null
                     end = RunFollowUps.End(sid, runId,
-                        finishedNotification = completed && result?.ok == true,
+                        finishedNotification = completed && (!notifyOnFinish || result?.ok == true),
                         recoverableInterruption = !completed && !cancelled && recoverableInterruption)
 
                 } finally { releaseKeepalive() }
@@ -519,7 +530,7 @@ class RunManager(
             synchronized(lock) { if (jobs[sid] === job) jobs.remove(sid) }
             val ended = end ?: return@invokeOnCompletion
             if (record.automationRunId != null) return@invokeOnCompletion
-            appScope.launch {
+            val successor = appScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 // Wait outside the completed job so starting its successor cannot join itself.
                 job.join()
                 // A send accepted while busy must reach durable storage before deciding what follows.
@@ -548,6 +559,9 @@ class RunManager(
                     }
                 } }
             }
+            synchronized(lock) { followUpJobs[sid] = successor }
+            successor.invokeOnCompletion { synchronized(lock) { if (followUpJobs[sid] === successor) followUpJobs.remove(sid) } }
+            successor.start()
         }
         synchronized(lock) {
             jobs[sid] = job
@@ -763,33 +777,71 @@ class RunManager(
     // ------------------------------------------------------------------
 
     fun approve(sessionId: String, rememberForSession: Boolean) {
-        val live = stateOf(sessionId)
-        val pending = live.value.pendingApproval ?: return
-        if (rememberForSession) synchronized(lock) {
-            grantStore.remember(sessionId, pending.grantKey)
-        }
-        live.update { it.copy(pendingApproval = null) }
-        pending.response.complete(true)
+        val state = stateOf(sessionId).value
+        val pending = state.pendingApproval ?: return
+        resolveApproval(sessionId, state.turnId ?: return, pending.call.id, true, rememberForSession)
     }
 
     fun deny(sessionId: String) {
+        val state = stateOf(sessionId).value
+        resolveApproval(sessionId, state.turnId ?: return, state.pendingApproval?.call?.id ?: return, false, false)
+    }
+
+    /** A delayed Telegram button can resolve only the exact run and tool shown on that button. */
+    fun respondToRemoteApproval(sessionId: String, turnId: String, callId: String, allow: Boolean, fingerprint: String? = null): Boolean =
+        resolveApproval(sessionId, turnId, callId, allow, false, fingerprint)
+
+    private fun resolveApproval(sessionId: String, turnId: String, callId: String, allow: Boolean, remember: Boolean, fingerprint: String? = null): Boolean {
         val live = stateOf(sessionId)
-        val pending = live.value.pendingApproval ?: return
-        live.update { it.copy(pendingApproval = null) }
-        pending.response.complete(false)
+        while (true) {
+            val current = live.value
+            val pending = current.pendingApproval ?: return false
+            if (current.turnId != turnId || pending.call.id != callId) return false
+            if (fingerprint != null && RemotePromptIdentity.approval(pending) != fingerprint) return false
+            if (!live.compareAndSet(current, current.copy(pendingApproval = null))) continue
+            if (allow && remember) synchronized(lock) { grantStore.remember(sessionId, pending.grantKey) }
+            return pending.response.complete(allow)
+        }
     }
 
     fun answerQuestion(sessionId: String, answer: String) {
+        val state = stateOf(sessionId).value
+        respondToRemoteQuestion(sessionId, state.turnId ?: return, state.pendingQuestion?.callId ?: return, answer)
+    }
+
+    fun respondToRemoteQuestion(sessionId: String, turnId: String, callId: String, answer: String, fingerprint: String? = null): Boolean {
         val live = stateOf(sessionId)
-        val pending = live.value.pendingQuestion ?: return
-        live.update { it.copy(pendingQuestion = null) }
-        pending.response.complete(answer.ifBlank { "(no answer given)" })
+        while (true) {
+            val current = live.value
+            val pending = current.pendingQuestion ?: return false
+            if (current.turnId != turnId || pending.callId != callId) return false
+            if (fingerprint != null && RemotePromptIdentity.question(pending) != fingerprint) return false
+            if (!live.compareAndSet(current, current.copy(pendingQuestion = null))) continue
+            return pending.response.complete(answer.ifBlank { "(no answer given)" })
+        }
     }
 
     /** Installs the full Linux environment and lets the run continue. */
     fun approveEnvironmentInstall(sessionId: String) {
+        val state = stateOf(sessionId).value
+        respondToRemoteEnvironment(sessionId, state.turnId ?: return, state.pendingEnvironment?.call?.id ?: return, true)
+    }
+
+    fun respondToRemoteEnvironment(sessionId: String, turnId: String, callId: String, allow: Boolean, fingerprint: String? = null): Boolean {
         val live = stateOf(sessionId)
-        val pending = live.value.pendingEnvironment ?: return
+        while (true) {
+            val current = live.value
+            val pending = current.pendingEnvironment ?: return false
+            if (current.turnId != turnId || pending.call.id != callId) return false
+            if (fingerprint != null && RemotePromptIdentity.environment(pending) != fingerprint) return false
+            if (!live.compareAndSet(current, current.copy(pendingEnvironment = null))) continue
+            if (allow) installEnvironment(sessionId, pending) else pending.response.complete(false)
+            return true
+        }
+    }
+
+    private fun installEnvironment(sessionId: String, pending: EnvironmentRequest) {
+        val live = stateOf(sessionId)
         appScope.launch {
             try {
                 if (pending.repair && !linuxEnv.needsRepair()) {
@@ -813,29 +865,31 @@ class RunManager(
                 live.update { it.copy(error = "Linux environment install failed: ${e.message}") }
                 pending.response.complete(false)
             } finally {
-                live.update { it.copy(pendingEnvironment = null) }
+                live.update { if (it.pendingEnvironment === pending) it.copy(pendingEnvironment = null) else it }
             }
         }
     }
 
     fun denyEnvironmentInstall(sessionId: String) {
-        val live = stateOf(sessionId)
-        val pending = live.value.pendingEnvironment ?: return
-        live.update { it.copy(pendingEnvironment = null) }
-        pending.response.complete(false)
+        val state = stateOf(sessionId).value
+        respondToRemoteEnvironment(sessionId, state.turnId ?: return, state.pendingEnvironment?.call?.id ?: return, false)
     }
 
     fun stop(sessionId: String) {
         followUps.stop(sessionId)
+        synchronized(lock) { followUpJobs[sessionId]?.cancel() }
         synchronized(lock) { jobs[sessionId]?.cancel() }
     }
 
     /** Cancels every live agent run and waits for each run's cleanup. */
     suspend fun stopAllAndJoin() {
         followUps.stopAll()
+        val successors = synchronized(lock) { followUpJobs.values.toList() }
+        successors.forEach { it.cancel() }
         val active = synchronized(lock) { jobs.values.toList() }
         active.forEach { it.cancel() }
         active.forEach { runCatching { it.join() } }
+        successors.forEach { runCatching { it.join() } }
     }
 
     /**
@@ -844,6 +898,7 @@ class RunManager(
      */
     suspend fun stopAndJoin(sessionId: String) {
         followUps.stop(sessionId)
+        synchronized(lock) { followUpJobs[sessionId] }?.cancelAndJoin()
         val job = synchronized(lock) { jobs[sessionId] } ?: return
         job.cancel()
         job.join()

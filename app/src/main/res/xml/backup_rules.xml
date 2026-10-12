@@ -16,4 +16,5 @@
     <exclude domain="file" path="linux" />
     <exclude domain="external" path="linux-deploy" />
     <exclude domain="file" path="datastore" />
+    <exclude domain="file" path="telegram" />
 </full-backup-content>

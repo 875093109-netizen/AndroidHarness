@@ -47,4 +47,39 @@ class TelegramBotClientTest {
         try { it.getMe(); fail("Malformed identity accepted") }
         catch (e: TelegramSetupException) { assertEquals(TelegramSetupProblem.RESPONSE, e.problem) }
     }
+
+    @Test fun rateLimitIncludesServerRetryDelayWithoutExposingDescription() = server(429,
+        """{"ok":false,"error_code":429,"description":"$token","parameters":{"retry_after":17}}""") {
+        try { it.publish(42, "Test"); fail("Rate limit accepted") }
+        catch (e: TelegramSetupException) {
+            assertEquals(TelegramSetupProblem.RATE_LIMIT, e.problem)
+            assertEquals(17, e.retryAfterSeconds)
+            assertFalse(e.deliveryUncertain)
+            assertFalse(e.message!!.contains(token))
+        }
+    }
+
+    @Test fun publishedMessageReturnsIdForBoundButtonsAndProgressEdits() = server(200,
+        """{"ok":true,"result":{"message_id":314,"chat":{"id":42,"type":"private"}}}""") {
+        assertEquals(314L, it.publish(42, "<unsafe> & **bold**", listOf(listOf(TelegramButton("Approve once", "tg:nonce")))))
+    }
+
+    @Test fun unchangedEditIsSuccessfulForSafeRetry() = server(400,
+        """{"ok":false,"error_code":400,"description":"Bad Request: message is not modified"}""") {
+        it.edit(42, 314, "Already delivered")
+    }
+
+    @Test fun callbackUsesHumanSenderRatherThanBotsMessageAuthorAndRejectsForwardedChat() {
+        val json = kotlinx.serialization.json.Json
+        fun callback(chat: Long, bot: Boolean) = parseTelegramUpdate(json.parseToJsonElement("""{
+            "update_id":8,"callback_query":{"id":"click","data":"tg:nonce",
+            "from":{"id":42,"is_bot":$bot,"first_name":"Owner"},
+            "message":{"message_id":314,"from":{"id":123456,"is_bot":true},"chat":{"id":$chat,"type":"private"}}}}
+        """))!!
+        assertEquals(42L, callback(42, false).account?.userId)
+        assertEquals(TelegramCallback("click", 314, "tg:nonce"), callback(42, false).callback)
+        assertNull(callback(99, false).account)
+        assertNull(callback(99, false).callback)
+        assertNull(callback(42, true).callback)
+    }
 }

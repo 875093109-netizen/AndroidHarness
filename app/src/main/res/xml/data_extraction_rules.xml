@@ -17,6 +17,7 @@
         <exclude domain="file" path="linux" />
         <exclude domain="external" path="linux-deploy" />
         <exclude domain="file" path="datastore" />
+        <exclude domain="file" path="telegram" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="api_keys.xml" />
@@ -25,5 +26,6 @@
         <exclude domain="file" path="linux" />
         <exclude domain="external" path="linux-deploy" />
         <exclude domain="file" path="datastore" />
+        <exclude domain="file" path="telegram" />
     </device-transfer>
 </data-extraction-rules>

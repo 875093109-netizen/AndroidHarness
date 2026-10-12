@@ -201,6 +201,7 @@ class AppContainer(val appContext: Context) {
         keys::githubCredential, keys::putGitHubCredential, { refreshGitHubAuth() })
     val githubRepositories = com.androidharness.app.github.GitHubWorkspaces(this)
     val automation = com.androidharness.app.automation.AutomationManager(this)
+    internal var telegram = com.androidharness.app.telegram.TelegramManager(this)
     val terminal = com.androidharness.app.data.TerminalManager(appContext, linuxEnv, shizuku, runManager)
 
     /**

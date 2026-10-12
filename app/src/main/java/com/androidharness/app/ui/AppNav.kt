@@ -310,6 +310,11 @@ fun AppNav(container: AppContainer) {
     androidx.compose.runtime.LaunchedEffect(Unit) {
         container.pendingSessionId.collect { sid -> nav.navigate("chat/$sid") }
     }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        container.pendingSettingsScroll.collect { target ->
+            if (target != null && nav.currentDestination?.route != "settings") nav.navigate("settings") { launchSingleTop = true }
+        }
+    }
 
     fun openChat(sessionId: String?, messageId: String? = null) {
         scope.launch { drawerState.close() }
