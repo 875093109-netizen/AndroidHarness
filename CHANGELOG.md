@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Telegram remote control**: replaces the setup preview with ongoing conversations in real project chats, the app's model selection and editing tools, Telegram approval/question buttons, project/chat/model menus and simple controls. Pair through a prepared bot link with a ten-minute code and phone confirmation. A foreground notification keeps reception active while minimized and offers Pause and Stop. Incoming requests, progress, completed replies and explicit retry/resume/resend controls survive connection failures without silently repeating interrupted tools.
+
 ## 2.0 (2026-10-12)
 
 ### Added

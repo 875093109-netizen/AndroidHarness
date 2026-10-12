@@ -40,6 +40,7 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 
 ### Chat
 
+- **Telegram remote control.** Pair a private bot account in Settings → Telegram to continue real chats, choose projects and models, edit files, approve tools and answer agent questions while the app is minimized. A persistent notification offers Pause and Stop, and saved requests/replies remain recoverable after a connection failure. See the [setup and command guide](TELEGRAM.md).
 - Full markdown chat with streaming responses, thinking blocks, and a tool call card for every action the agent takes.
 - Responsive markdown tables with compact card previews and an expandable full-sheet viewer with horizontal scroll.
 - File diff sheets open right from tool call cards, so you can inspect a change without leaving the conversation.
