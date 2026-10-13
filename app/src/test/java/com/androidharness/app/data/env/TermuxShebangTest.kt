@@ -35,11 +35,20 @@ class TermuxShebangTest {
     }
 
     @Test
-    fun `env-style shebang routes through the busybox applet`() {
+    fun `env-style shebang uses bundled coreutils without requiring busybox applets`() {
         assertEquals(
-            "#!${deployed}/bin/applets/env node",
+            "#!${deployed}/bin/env node",
             TermuxShebangs.rewrittenFirstLine(npmCli, deployed),
         )
+    }
+
+    @Test
+    fun `older deployed env shebangs are repaired without changing arguments`() {
+        assertEquals("#!$deployed/bin/env node", TermuxShebangs.rewrittenFirstLine("#!$deployed/bin/applets/env node", deployed))
+        assertEquals("#!$deployed/bin/env python3 -u", TermuxShebangs.rewrittenFirstLine("#!$deployed/bin/applets/env python3 -u", deployed))
+        assertNull(TermuxShebangs.rewrittenFirstLine("#!$deployed/bin/env node", deployed))
+        assertNull(TermuxShebangs.rewrittenFirstLine("#!/other/build/bin/applets/env node", deployed))
+        assertNull(TermuxShebangs.rewrittenFirstLine("#!/system/bin/env node", deployed))
     }
 
     @Test

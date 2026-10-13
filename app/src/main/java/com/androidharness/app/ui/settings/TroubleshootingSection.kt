@@ -50,6 +50,7 @@ internal fun TroubleshootingSection(container: AppContainer, onOpen: (SettingsPa
     val env by container.linuxEnv.state.collectAsStateWithLifecycle()
     val shizuku by container.shizuku.state.collectAsStateWithLifecycle()
     val service by container.shizuku.serviceState.collectAsStateWithLifecycle()
+    val connectionFailure by container.shizuku.connectionFailure.collectAsStateWithLifecycle()
     val ssh by container.sshConnections.statuses.collectAsStateWithLifecycle()
     val servers by container.mcp.servers.collectAsStateWithLifecycle()
     val tools by container.mcp.statuses.collectAsStateWithLifecycle()
@@ -101,7 +102,7 @@ internal fun TroubleshootingSection(container: AppContainer, onOpen: (SettingsPa
         else -> DiagnosticState.CHECKING
     }
     val shizukuState = shizukuDiagnostic(shizuku == ShizukuState.GRANTED,
-        service == UserServiceState.BOUND_READY, service == UserServiceState.BINDING, service == UserServiceState.BIND_FAILED)
+        service.isReady, service == UserServiceState.BINDING, service == UserServiceState.BIND_FAILED)
     val enabledServers = servers.filter { it.enabled }
     val mcpState = when {
         tampered -> DiagnosticState.ISSUE
@@ -181,13 +182,17 @@ internal fun TroubleshootingSection(container: AppContainer, onOpen: (SettingsPa
         else -> "Install Linux tools to run local commands."
     }) { TextButton(onClick = { onOpen(SettingsPage.ENVIRONMENT) }) { Text("Open terminal settings") } }
     DiagnosticCard("Shizuku · optional", shizukuState, when {
+        service == UserServiceState.COMPAT_READY -> "Permission granted. Commands are ready in compatibility mode."
         shizukuState == DiagnosticState.READY -> "Permission granted and command service ready."
         shizuku == ShizukuState.RUNNING_NO_PERMISSION -> "Shizuku is running. Grant permission in terminal settings."
         shizukuState == DiagnosticState.CHECKING -> "Connecting to the command service…"
         shizukuState == DiagnosticState.ISSUE -> "The command service failed to connect. Reconnect in terminal settings."
         shizuku == ShizukuState.GRANTED -> "Permission granted. The command service is not connected."
         else -> "Start Shizuku to use commands with system access."
-    }) { TextButton(onClick = { onOpen(SettingsPage.ENVIRONMENT) }) { Text("Open Shizuku settings") } }
+    }, extraDetails = { ShizukuFailureDetails(connectionFailure, container.shizuku::connectionReport,
+        container.shizuku::startupReport, recovered = service == UserServiceState.COMPAT_READY) }) {
+        TextButton(onClick = { onOpen(SettingsPage.ENVIRONMENT) }) { Text("Open Shizuku settings") }
+    }
     DiagnosticCard("SSH workspaces · optional", sshState, when (sshState) {
         DiagnosticState.READY -> "${ssh.values.count { it.connected }} connection(s) active. Check a folder separately to confirm access."
         DiagnosticState.ISSUE -> "A connection needs attention. Review it in Workspaces."
@@ -208,7 +213,8 @@ internal fun TroubleshootingSection(container: AppContainer, onOpen: (SettingsPa
 }
 
 @Composable
-private fun DiagnosticCard(title: String, state: DiagnosticState, detail: String, actions: @Composable RowScope.() -> Unit) {
+private fun DiagnosticCard(title: String, state: DiagnosticState, detail: String,
+    extraDetails: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val tint = when (state) {
         DiagnosticState.ISSUE -> scheme.error
@@ -227,6 +233,7 @@ private fun DiagnosticCard(title: String, state: DiagnosticState, detail: String
                 Text(state.label, style = MaterialTheme.typography.labelMedium, color = tint)
             }
             Text(detail, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            extraDetails()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), content = actions)
         }
     }

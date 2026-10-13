@@ -6,18 +6,27 @@ import android.content.ServiceConnection
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import com.androidharness.app.IHarnessService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ShizukuState {
     NOT_INSTALLED,
@@ -32,6 +41,10 @@ enum class UserServiceState {
     BINDING,
     BOUND_READY,
     BIND_FAILED,
+    COMPAT_READY,
+    ;
+
+    val isReady: Boolean get() = this == BOUND_READY || this == COMPAT_READY
 }
 
 /** Result of a privileged command executed inside Shizuku's server process. */
@@ -53,6 +66,9 @@ data class PrivilegedResult(
 class ShizukuManager(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+    private val userServiceClassName: String = HarnessUserService::class.java.name,
+    private val userServiceTimeoutMs: Long = 15_000,
+    private val userServiceTag: String? = null,
 ) {
 
     internal val workspaceWarning = shizukuWarningController(
@@ -112,34 +128,44 @@ class ShizukuManager(
     }.getOrDefault(1)
 
     private val userServiceArgs = Shizuku.UserServiceArgs(
-        ComponentName(context.packageName, HarnessUserService::class.java.name),
+        ComponentName(context.packageName, userServiceClassName),
     )
         .daemon(false)
         .processNameSuffix("harness")
         .debuggable(isDebuggable)
         .version(appVersionCode)
+        .apply { userServiceTag?.let { tag(it) } }
 
-    private val serviceBinding = ShizukuServiceBinding<IHarnessService>(
+    private val sdkHandler = Handler(Looper.getMainLooper())
+    private val serviceBinding: ShizukuServiceBinding<IHarnessService> = ShizukuServiceBinding(
         scope = scope,
+        timeoutMs = userServiceTimeoutMs,
         isAlive = { it.asBinder().pingBinder() },
         bind = { connected, disconnected ->
+            val active = AtomicBoolean(true)
             val connection = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                     connected(binder?.let(IHarnessService.Stub::asInterface))
                 }
-                override fun onServiceDisconnected(name: ComponentName?) = disconnected()
+                override fun onServiceDisconnected(name: ComponentName?) = disconnected(ShizukuFailureReason.SERVICE_DISCONNECTED)
                 override fun onNullBinding(name: ComponentName?) = connected(null)
-                override fun onBindingDied(name: ComponentName?) = disconnected()
+                override fun onBindingDied(name: ComponentName?) = disconnected(ShizukuFailureReason.BINDING_DIED)
             }
-            try {
-                Shizuku.bindUserService(userServiceArgs, connection)
-            } catch (e: Exception) {
-                // The SDK registers callbacks before asking its server to bind.
-                runCatching { Shizuku.unbindUserService(userServiceArgs, connection, false) }
-                throw e
+            // The SDK iterates mutable callback maps on the main looper. Register
+            // on that looper and defer unregistering until its callback returns.
+            sdkHandler.post {
+                if (active.get()) {
+                    try { Shizuku.bindUserService(userServiceArgs, connection) }
+                    catch (e: Exception) {
+                        if (active.get()) serviceBinding.unavailable(
+                            ShizukuConnectionFailure.fromException(ShizukuFailureReason.BIND_EXCEPTION, e))
+                        sdkHandler.post { runCatching { Shizuku.unbindUserService(userServiceArgs, connection, false) } }
+                    }
+                }
             }
             val detach: (Boolean) -> Unit = { remove ->
-                Shizuku.unbindUserService(userServiceArgs, connection, remove)
+                active.set(false)
+                sdkHandler.post { runCatching { Shizuku.unbindUserService(userServiceArgs, connection, remove) } }
             }
             detach
         },
@@ -150,29 +176,159 @@ class ShizukuManager(
             }
         },
     )
-    val serviceState: StateFlow<UserServiceState> = serviceBinding.state
+    private val mutableServiceState = MutableStateFlow(UserServiceState.NOT_BOUND)
+    val serviceState: StateFlow<UserServiceState> = mutableServiceState.asStateFlow()
+    val connectionFailure: StateFlow<ShizukuConnectionFailure?> = serviceBinding.failure
     private val service: IHarnessService? get() = serviceBinding.service
+    @Volatile private var compatibility: ShizukuCompatClient? = null
+    private var compatibilityJob: Job? = null
+    private var compatibilityGeneration = 0L
+    @Volatile private var closed = false
+
+    private val receivedListener = Shizuku.OnBinderReceivedListener { refresh() }
+    private val deadListener = Shizuku.OnBinderDeadListener {
+        clearCompatibility()
+        serviceBinding.disconnect(failure = ShizukuConnectionFailure(ShizukuFailureReason.SERVER_LOST))
+        mutableServiceState.value = UserServiceState.NOT_BOUND
+        _state.value = ShizukuState.NOT_RUNNING
+    }
+    private val permissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+        if (grantResult == PackageManager.PERMISSION_GRANTED) {
+            workspaceWarning.onStatus(ShizukuState.GRANTED)
+            _state.value = ShizukuState.GRANTED
+            bindUserService()
+        }
+    }
+
+    @Synchronized private fun clearCompatibility() {
+        compatibilityGeneration++
+        compatibilityJob?.cancel()
+        compatibilityJob = null
+        val previous = compatibility
+        compatibility = null
+        previous?.close()
+    }
+
+    @Synchronized private fun observeServiceState(value: UserServiceState) {
+        if (closed) return
+        when (value) {
+            UserServiceState.BOUND_READY -> {
+                clearCompatibility()
+                mutableServiceState.value = value
+            }
+            UserServiceState.BIND_FAILED -> {
+                mutableServiceState.value = value
+                val reason = connectionFailure.value?.reason
+                if (isGranted() && reason in setOf(ShizukuFailureReason.TIMEOUT,
+                        ShizukuFailureReason.BIND_EXCEPTION, ShizukuFailureReason.NULL_BINDER)) {
+                    startCompatibility()
+                } else if (isGranted() && reason in setOf(ShizukuFailureReason.SERVICE_DISCONNECTED,
+                        ShizukuFailureReason.BINDING_DIED, ShizukuFailureReason.DEAD_BINDER,
+                        ShizukuFailureReason.BINDER_CHECK_FAILED)) {
+                    scope.launch { delay(1_500); refresh() }
+                }
+            }
+            else -> {
+                clearCompatibility()
+                mutableServiceState.value = value
+            }
+        }
+    }
+
+    @Synchronized private fun startCompatibility() {
+        if (closed || compatibilityJob?.isActive == true) return
+        val generation = ++compatibilityGeneration
+        mutableServiceState.value = UserServiceState.BINDING
+        compatibilityJob = scope.launch {
+            var launched: ShizukuCompatClient? = null
+            try {
+                val client = ShizukuCompatClient.start(context.applicationInfo.sourceDir) {
+                    synchronized(this@ShizukuManager) {
+                        if (compatibility === launched && launched != null) {
+                            clearCompatibility()
+                            serviceBinding.unavailable(ShizukuConnectionFailure(ShizukuFailureReason.COMPAT_DISCONNECTED))
+                            mutableServiceState.value = UserServiceState.BIND_FAILED
+                            scope.launch { delay(1_500); refresh() }
+                        }
+                    }
+                }
+                launched = client
+                synchronized(this@ShizukuManager) {
+                    if (generation == compatibilityGeneration && isGranted() &&
+                        serviceBinding.state.value == UserServiceState.BIND_FAILED) {
+                        check(client.isAlive) { "Compatibility runner exited during startup" }
+                        compatibility = client
+                        mutableServiceState.value = UserServiceState.COMPAT_READY
+                    } else client.close()
+                }
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                synchronized(this@ShizukuManager) {
+                    if (generation == compatibilityGeneration) {
+                        serviceBinding.unavailable(ShizukuConnectionFailure.fromException(ShizukuFailureReason.COMPAT_START_FAILED, e))
+                        mutableServiceState.value = UserServiceState.BIND_FAILED
+                    }
+                }
+            } finally {
+                synchronized(this@ShizukuManager) {
+                    if (generation == compatibilityGeneration) compatibilityJob = null
+                }
+            }
+        }
+    }
+
+    /** Releases a test/session-owned manager, including all SDK listeners and helper pipes. */
+    internal fun close() {
+        closed = true
+        clearCompatibility()
+        serviceBinding.disconnect(remove = true)
+        runCatching { Shizuku.removeBinderReceivedListener(receivedListener) }
+        runCatching { Shizuku.removeBinderDeadListener(deadListener) }
+        runCatching { Shizuku.removeRequestPermissionResultListener(permissionListener) }
+        scope.cancel()
+    }
+
+    /** Explicitly copied connection report, separate from the general report that excludes raw errors. */
+    fun connectionReport(): String = buildString {
+        appendLine("AndroidHarness Shizuku connection")
+        appendLine("App: ${com.androidharness.app.BuildConfig.VERSION_NAME} (${com.androidharness.app.BuildConfig.VERSION_CODE})")
+        appendLine("Package: ${context.packageName}")
+        appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+        appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        appendLine("Shizuku API: ${runCatching { Shizuku.getVersion().toString() }.getOrDefault("unavailable")}")
+        appendLine("Shizuku server: ${runCatching { "${Shizuku.getVersion()}.${Shizuku.getServerPatchVersion()}" }.getOrDefault("unavailable")}")
+        appendLine("Shizuku app: ${runCatching {
+            val info = context.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
+            "${info.versionName} (${if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()})"
+        }.getOrDefault("unavailable")}")
+        appendLine("Shizuku status: ${state.value}")
+        appendLine("Shell runner: ${serviceState.value}")
+        appendLine("Service: $userServiceClassName; version: $appVersionCode")
+        append(connectionFailure.value?.report() ?: "No connection failure recorded in this app session.")
+    }
+
+    suspend fun startupReport(): ShizukuStartupReport {
+        val failure = connectionFailure.value
+        val report = connectionReport()
+        val now = System.currentTimeMillis()
+        // Limit the search to recent startup attempts even if the last failure is old.
+        val since = maxOf((failure?.occurredAtMillis ?: now) - 60_000, now - 300_000)
+        val (log, status) = collectShizukuStartupLog(context.packageName, since)
+        return ShizukuStartupReport("$report\n\nStartup log since ${java.time.Instant.ofEpochMilli(since)}\n$status\n$log", status)
+    }
 
     init {
+        scope.launch { serviceBinding.state.collect(::observeServiceState) }
         refresh()
 
         runCatching {
-            Shizuku.addBinderReceivedListener { refresh() }
+            Shizuku.addBinderReceivedListener(receivedListener)
         }
         runCatching {
-            Shizuku.addBinderDeadListener {
-                _state.value = ShizukuState.NOT_RUNNING
-                serviceBinding.disconnect()
-            }
+            Shizuku.addBinderDeadListener(deadListener)
         }
         runCatching {
-            Shizuku.addRequestPermissionResultListener { _, grantResult ->
-                if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                    workspaceWarning.onStatus(ShizukuState.GRANTED)
-                    _state.value = ShizukuState.GRANTED
-                    bindUserService()
-                }
-            }
+            Shizuku.addRequestPermissionResultListener(permissionListener)
         }
 
         // The Shizuku binder may not be connected yet during Application.onCreate.
@@ -188,6 +344,7 @@ class ShizukuManager(
     }
 
     fun refresh() {
+        if (closed) return
         val ping = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
         val hasPermission = ping && runCatching {
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
@@ -200,7 +357,11 @@ class ShizukuManager(
         }
         workspaceWarning.onStatus(s)
         _state.value = s
-        if (s == ShizukuState.GRANTED) bindUserService() else serviceBinding.disconnect()
+        if (s == ShizukuState.GRANTED) bindUserService() else {
+            clearCompatibility()
+            serviceBinding.disconnect()
+            mutableServiceState.value = UserServiceState.NOT_BOUND
+        }
     }
 
     fun isGranted(): Boolean = _state.value == ShizukuState.GRANTED
@@ -226,32 +387,41 @@ class ShizukuManager(
 
     /**
      * Binds the in-server user service so privilege exec works. Requires Shizuku
-     * API >= 10; silently degrades to Unavailable otherwise (callers fall back).
+     * API >= 11; records a connection failure otherwise (callers fall back).
      */
     fun bindUserService() {
+        if (closed) return
         val hasPermission = runCatching {
             Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         }.getOrDefault(false)
         if (!hasPermission) {
+            clearCompatibility()
             serviceBinding.disconnect()
             return
         }
-        val ok = runCatching {
-            Shizuku.getVersion() >= 10
-        }.getOrDefault(false)
-        if (!ok) {
-            serviceBinding.unavailable()
+        if (compatibility?.isAlive == true || compatibilityJob?.isActive == true) return
+        val version = try {
+            Shizuku.getVersion()
+        } catch (e: Exception) {
+            serviceBinding.unavailable(ShizukuConnectionFailure.fromException(ShizukuFailureReason.VERSION_CHECK_FAILED, e))
+            return
+        }
+        if (version < 11) {
+            serviceBinding.unavailable(ShizukuConnectionFailure(ShizukuFailureReason.UNSUPPORTED_VERSION,
+                "Server API: $version; required: 11 or newer."))
             return
         }
         serviceBinding.connect()
     }
 
     fun unbindUserService() {
+        clearCompatibility()
         serviceBinding.disconnect(remove = true)
+        mutableServiceState.value = UserServiceState.NOT_BOUND
     }
 
-    /** True when the in-server service is connected and callable. */
-    fun isServiceReady(): Boolean = service != null
+    /** True when permission and a callable normal or compatibility runner are available. */
+    fun isServiceReady(): Boolean = isGranted() && (service != null || compatibility?.isAlive == true)
 
     /**
      * Runs [cmd] inside the Shizuku server process (shell/root uid). Returns null
@@ -264,10 +434,22 @@ class ShizukuManager(
         timeoutMs: Int,
         maxBytes: Int = 60_000,
     ): PrivilegedResult? = withContext(Dispatchers.IO) {
-        val svc = service ?: return@withContext null
-        val raw = runCatching {
-            svc.exec(cmd, withDeployPaths(env), dir, maxBytes, timeoutMs)
-        }.getOrNull() ?: return@withContext null
+        val svc = service
+        val raw = if (svc != null) {
+            runCatching { svc.exec(cmd, withDeployPaths(env), dir, maxBytes, timeoutMs) }.getOrNull()
+                ?: return@withContext null
+        } else {
+            val client = compatibility?.takeIf { it.isAlive } ?: return@withContext null
+            try {
+                client.request(CompatRequest(0, "exec", cmd.toList(), withDeployPaths(env).toList(), dir,
+                    maxBytes = maxBytes, timeoutMs = timeoutMs))
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                // A submitted command may already have changed files. Return a failure,
+                // never null, so callers cannot replay it under the app UID.
+                return@withContext PrivilegedResult(-1, false, "", "Compatibility command failed: ${e.message}")
+            }
+        }
         parseResult(raw)
     }
 
@@ -445,17 +627,21 @@ class ShizukuManager(
         dir: String?,
         logPath: String,
     ): Int? = withContext(Dispatchers.IO) {
-        val svc = service ?: return@withContext null
-        runCatching { svc.spawnDetached(cmd, env, dir, logPath) }.getOrNull()
+        val svc = service
+        if (svc != null) runCatching { svc.spawnDetached(cmd, env, dir, logPath) }.getOrNull()
+        else compatibility?.takeIf { it.isAlive }?.request(CompatRequest(0, "spawn", cmd.toList(),
+            withDeployPaths(env).toList(), dir, logPath))?.toIntOrNull()
     }
 
     suspend fun isProcessAlive(pid: Int): Boolean = withContext(Dispatchers.IO) {
-        val svc = service ?: return@withContext false
-        runCatching { svc.isProcessAlive(pid) }.getOrDefault(false)
+        val svc = service
+        if (svc != null) runCatching { svc.isProcessAlive(pid) }.getOrDefault(false)
+        else compatibility?.takeIf { it.isAlive }?.request(CompatRequest(0, "alive", pid = pid))?.toBooleanStrictOrNull() ?: false
     }
 
     suspend fun killProcess(pid: Int): Boolean = withContext(Dispatchers.IO) {
-        val svc = service ?: return@withContext false
-        runCatching { svc.killProcess(pid) }.getOrDefault(false)
+        val svc = service
+        if (svc != null) runCatching { svc.killProcess(pid) }.getOrDefault(false)
+        else compatibility?.takeIf { it.isAlive }?.request(CompatRequest(0, "kill", pid = pid))?.toBooleanStrictOrNull() ?: false
     }
 }

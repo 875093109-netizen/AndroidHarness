@@ -156,7 +156,7 @@ class DefaultLogcatRunner(
     override suspend fun runLogcat(query: LogcatQuery): LogcatRunResult {
         val isPrivileged = shizuku != null &&
             shizuku.state.value == ShizukuState.GRANTED &&
-            shizuku.serviceState.value == UserServiceState.BOUND_READY
+            shizuku.serviceState.value.isReady
 
         // Resolve PID for package if specified
         var pid: String? = null

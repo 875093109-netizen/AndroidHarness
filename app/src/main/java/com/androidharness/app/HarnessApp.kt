@@ -283,7 +283,7 @@ class AppContainer(val appContext: Context) {
                 .collect { (e, s, v) ->
                     if (e is com.androidharness.app.data.env.EnvState.Ready &&
                         s == com.androidharness.app.data.env.ShizukuState.GRANTED &&
-                        v == com.androidharness.app.data.env.UserServiceState.BOUND_READY
+                        v.isReady
                     ) {
                         linuxEnv.ensureShellDeploy(shizuku)
                     }
@@ -303,7 +303,7 @@ class AppContainer(val appContext: Context) {
             // explicitly so it picks the fixes up.
             if (repaired != null &&
                 shizuku.state.value == com.androidharness.app.data.env.ShizukuState.GRANTED &&
-                shizuku.serviceState.value == com.androidharness.app.data.env.UserServiceState.BOUND_READY
+                shizuku.serviceState.value.isReady
             ) {
                 linuxEnv.ensureShellDeploy(shizuku)
             }

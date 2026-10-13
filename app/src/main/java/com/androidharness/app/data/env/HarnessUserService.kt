@@ -171,7 +171,7 @@ class HarnessUserService() : IHarnessService.Stub() {
                 if (fds != null) {
                     for (fd in fds) {
                         val link = runCatching { android.system.Os.readlink(fd.absolutePath) }.getOrNull()
-                        if (link != null && (link == logPath || link.startsWith(logPath))) {
+                        if (link == logPath || link == "$logPath (deleted)") {
                             matchedPids += p
                             break
                         }
@@ -324,15 +324,28 @@ class HarnessUserService() : IHarnessService.Stub() {
         val startedAt = System.currentTimeMillis()
         var timedOut = false
         var exit = -1
-        while (true) {
-            if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
-                exit = process.exitValue()
-                break
+        try {
+            while (true) {
+                if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
+                    exit = process.exitValue()
+                    break
+                }
+                if (System.currentTimeMillis() - startedAt > timeoutMs) {
+                    timedOut = true
+                    break
+                }
             }
-            if (System.currentTimeMillis() - startedAt > timeoutMs) {
-                timedOut = true
-                break
-            }
+        } catch (e: InterruptedException) {
+            // The compatibility transport can cancel one request without stopping
+            // the service or other commands. Reuse the existing group cleanup.
+            pidOf(process)?.let(::killGroup)
+            process.destroyForcibly()
+            runCatching { process.waitFor(200, TimeUnit.MILLISECONDS) }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            runCatching { process.outputStream.close() }
+            reapZombies()
+            throw e
         }
 
         val pid = pidOf(process)

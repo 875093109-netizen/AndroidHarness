@@ -13,7 +13,7 @@ internal class ShizukuServiceBinding<T>(
     private val scope: CoroutineScope,
     private val timeoutMs: Long = 15_000,
     private val isAlive: (T) -> Boolean,
-    private val bind: (connected: (T?) -> Unit, disconnected: () -> Unit) -> ((remove: Boolean) -> Unit),
+    private val bind: (connected: (T?) -> Unit, disconnected: (ShizukuFailureReason) -> Unit) -> ((remove: Boolean) -> Unit),
     private val onDisconnected: () -> Unit = {},
 ) {
     private class Attempt {
@@ -24,12 +24,13 @@ internal class ShizukuServiceBinding<T>(
     private var connectedService: T? = null
     private val mutableState = MutableStateFlow(UserServiceState.NOT_BOUND)
     val state: StateFlow<UserServiceState> = mutableState.asStateFlow()
+    private val mutableFailure = MutableStateFlow<ShizukuConnectionFailure?>(null)
+    val failure: StateFlow<ShizukuConnectionFailure?> = mutableFailure.asStateFlow()
 
     val service: T?
         @Synchronized get() {
             val value = connectedService ?: return null
-            if (runCatching { isAlive(value) }.getOrDefault(false)) return value
-            clear(UserServiceState.BIND_FAILED)
+            if (checkAlive(value)) return value
             return null
         }
 
@@ -41,38 +42,63 @@ internal class ShizukuServiceBinding<T>(
         attempt.timeout = scope.launch {
             delay(timeoutMs)
             synchronized(this@ShizukuServiceBinding) {
-                if (current === attempt && connectedService == null) clear(UserServiceState.BIND_FAILED)
+                if (current === attempt && connectedService == null) {
+                    fail(ShizukuConnectionFailure(ShizukuFailureReason.TIMEOUT,
+                        "Waited ${timeoutMs} ms for onServiceConnected. " +
+                            "Shizuku did not provide a startup error to the app. " +
+                            "Device logcat around this time is needed to identify the server-side cause."))
+                }
             }
         }
         try {
             val detach = bind({ value ->
                 synchronized(this) {
                     if (current === attempt) {
-                        if (value != null && runCatching { isAlive(value) }.getOrDefault(false)) {
+                        if (value == null) fail(ShizukuConnectionFailure(ShizukuFailureReason.NULL_BINDER))
+                        else if (checkAlive(value)) {
                             connectedService = value
                             attempt.timeout?.cancel()
+                            mutableFailure.value = null
                             mutableState.value = UserServiceState.BOUND_READY
-                        } else clear(UserServiceState.BIND_FAILED)
+                        }
                     }
                 }
-            }, {
+            }, { reason ->
                 val disconnected = synchronized(this) {
                     if (current !== attempt) false else {
-                        clear(UserServiceState.NOT_BOUND)
+                        fail(ShizukuConnectionFailure(reason))
                         true
                     }
                 }
                 if (disconnected) onDisconnected()
             })
             if (current === attempt) attempt.detach = detach else runCatching { detach(false) }
-        } catch (_: Exception) {
-            if (current === attempt) clear(UserServiceState.BIND_FAILED)
+        } catch (e: Exception) {
+            if (current === attempt) fail(ShizukuConnectionFailure.fromException(ShizukuFailureReason.BIND_EXCEPTION, e))
         }
     }
 
-    @Synchronized fun disconnect(remove: Boolean = false) = clear(UserServiceState.NOT_BOUND, remove)
+    @Synchronized fun disconnect(remove: Boolean = false, failure: ShizukuConnectionFailure? = null) {
+        if (failure != null) mutableFailure.value = failure
+        clear(UserServiceState.NOT_BOUND, remove)
+    }
 
-    @Synchronized fun unavailable() = clear(UserServiceState.BIND_FAILED)
+    @Synchronized fun unavailable(failure: ShizukuConnectionFailure) = fail(failure)
+
+    private fun checkAlive(value: T): Boolean = try {
+        if (isAlive(value)) true else {
+            fail(ShizukuConnectionFailure(ShizukuFailureReason.DEAD_BINDER))
+            false
+        }
+    } catch (e: Exception) {
+        fail(ShizukuConnectionFailure.fromException(ShizukuFailureReason.BINDER_CHECK_FAILED, e))
+        false
+    }
+
+    private fun fail(failure: ShizukuConnectionFailure) {
+        mutableFailure.value = failure
+        clear(UserServiceState.BIND_FAILED)
+    }
 
     /** Detach callbacks without killing a healthy server during a timeout or binder loss. */
     private fun clear(state: UserServiceState, remove: Boolean = false) {

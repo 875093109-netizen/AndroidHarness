@@ -70,7 +70,7 @@ class TerminalManager(
     init {
         scope.launch {
             kotlinx.coroutines.flow.combine(shizuku.state, shizuku.serviceState) { state, service ->
-                state == ShizukuState.GRANTED && service == UserServiceState.BOUND_READY
+                state == ShizukuState.GRANTED && service.isReady
             }.collect { ready ->
                 _state.update { it.copy(privileged = ready) }
             }

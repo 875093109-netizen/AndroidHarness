@@ -146,13 +146,18 @@ internal object TermuxShebangs {
      * Rewrites a Termux-absolute shebang into [deployedPrefix] (this build's
      * deployed copy); null when the line cannot be repaired (not under
      * files/usr, or still references the Termux prefix after rewriting).
-     * busybox provides `env` only as an applet in bin/applets, so env-style
-     * launchers route through that.
+     * Env-style launchers use the bundled coreutils env in bin/env. Keeping
+     * it in the same prefix also preserves library paths for Node subprocesses.
+     * Repair older rewrites that assumed busybox supplied bin/applets/env.
      */
     fun rewrittenFirstLine(firstLine: String, deployedPrefix: String): String? {
-        if (!firstLine.startsWith("#!$TERMUX_USR")) return null
-        var line = "#!$deployedPrefix/" + firstLine.removePrefix("#!$TERMUX_USR")
-        line = line.replaceFirst("$deployedPrefix/bin/env ", "$deployedPrefix/bin/applets/env ")
+        var line = when {
+            firstLine.startsWith("#!$TERMUX_USR") ->
+                "#!$deployedPrefix/" + firstLine.removePrefix("#!$TERMUX_USR")
+            firstLine.startsWith("#!$deployedPrefix/bin/applets/env ") -> firstLine
+            else -> return null
+        }
+        line = line.replaceFirst("#!$deployedPrefix/bin/applets/env ", "#!$deployedPrefix/bin/env ")
         return if (line.contains("/data/data/com.termux")) null else line
     }
 }
@@ -685,8 +690,8 @@ class LinuxEnvironmentManager(
             val text = runCatching { f.readText() }.getOrNull() ?: return@forEach
             val nl = text.indexOf('\n')
             val firstLine = text.lineSequence().firstOrNull()?.trim() ?: ""
-            if (!firstLine.startsWith(TermuxShebangs.TERMUX_PREFIX_MARK)) return@forEach
             val repaired = TermuxShebangs.rewrittenFirstLine(firstLine, tmpPrefix)
+            if (!firstLine.startsWith(TermuxShebangs.TERMUX_PREFIX_MARK) && repaired == null) return@forEach
             if (repaired != null && !TermuxShebangs.isWrapperScript(f.name, firstLine)) {
                 runCatching {
                     f.writeText(repaired + if (nl >= 0) text.substring(nl) else "")
@@ -1215,7 +1220,7 @@ class LinuxEnvironmentManager(
             File(prefix, CODEGRAPH_VERSION_MARKER).readText().trim()
         }.getOrDefault("")
         val bundlePatchVersion = CodeGraphBundlePatches.VERSION
-        return ("v21-github-exec-codegraph-p$bundlePatchVersion\n$codeGraphVersion\n" + installedPackages().sorted().joinToString("\n"))
+        return ("v22-coreutils-env-github-exec-codegraph-p$bundlePatchVersion\n$codeGraphVersion\n" + installedPackages().sorted().joinToString("\n"))
             .let { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } }
     }
 
@@ -1265,6 +1270,9 @@ class LinuxEnvironmentManager(
     fun stageForShell() {
         try {
             if (!File(prefix, "bin/bash").exists()) return
+            // Repair earlier env shebangs before checking or creating the tarball.
+            // The package set may be unchanged while an old script is still broken.
+            if (purgeDeadTermuxShims().second > 0) stagingMarker.delete()
             LocaleCommand.ensureInstalled(prefix)
             // Bug 5 fix: the safe.directory config must exist before the
             // prefix is tarred, or the deployed copy exports a missing file.

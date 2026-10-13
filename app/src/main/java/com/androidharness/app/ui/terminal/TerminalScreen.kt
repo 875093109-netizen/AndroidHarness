@@ -70,7 +70,7 @@ fun TerminalScreen(
     val shizukuState by container.shizuku.state.collectAsStateWithLifecycle()
     val shizukuServiceState by container.shizuku.serviceState.collectAsStateWithLifecycle()
     val shizukuReady = shizukuState == com.androidharness.app.data.env.ShizukuState.GRANTED &&
-        shizukuServiceState == com.androidharness.app.data.env.UserServiceState.BOUND_READY
+        shizukuServiceState.isReady
     val listState = rememberLazyListState()
     var inputValue by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(""))

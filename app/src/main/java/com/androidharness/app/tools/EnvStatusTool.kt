@@ -43,6 +43,7 @@ class EnvStatusTool(
                 "running, but AndroidHarness has not been granted access (user: Settings → Terminal → Grant Shizuku access)"
             ShizukuState.GRANTED -> when (shizuku.serviceState.value) {
                 UserServiceState.BOUND_READY -> "running and the privileged runner is connected ✓"
+                UserServiceState.COMPAT_READY -> "running and the privileged runner is connected in compatibility mode ✓"
                 UserServiceState.NOT_BOUND -> "running and granted; privileged runner not connected yet"
                 UserServiceState.BINDING -> "running and granted; connecting to the privileged runner"
                 UserServiceState.BIND_FAILED -> "running and granted, but the privileged runner could not connect; retry in Terminal & device settings"

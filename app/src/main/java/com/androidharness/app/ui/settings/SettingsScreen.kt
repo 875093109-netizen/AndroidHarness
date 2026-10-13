@@ -435,6 +435,7 @@ private fun TerminalSection(
 ) {
     val storageAccess = rememberStorageAccess()
     val allFiles = storageAccess.granted
+    val connectionFailure by container.shizuku.connectionFailure.collectAsStateWithLifecycle()
 
     SettingsHeader("Terminal & environment")
 
@@ -446,6 +447,7 @@ private fun TerminalSection(
     val systemText = when (shizukuState) {
         ShizukuState.GRANTED -> when (serviceState) {
             UserServiceState.BOUND_READY -> "Shizuku ✓"
+            UserServiceState.COMPAT_READY -> "Compatibility ✓"
             UserServiceState.BINDING -> "Connecting…"
             UserServiceState.BIND_FAILED -> "Connection failed"
             UserServiceState.NOT_BOUND -> "Not connected"
@@ -487,7 +489,7 @@ private fun TerminalSection(
                     title = "System paths & any folder",
                     subtitle = "ADB-shell privileges via Shizuku",
                     divider = false,
-                    trailing = { StatusText(systemText, ok = shizukuState == ShizukuState.GRANTED && serviceState == UserServiceState.BOUND_READY) },
+                    trailing = { StatusText(systemText, ok = shizukuState == ShizukuState.GRANTED && serviceState.isReady) },
                 )
             }
         }
@@ -497,6 +499,9 @@ private fun TerminalSection(
     ShizukuCard(
         state = shizukuState,
         serviceState = serviceState,
+        failure = connectionFailure,
+        connectionReport = container.shizuku::connectionReport,
+        startupReport = container.shizuku::startupReport,
         onRefresh = { container.shizuku.refresh() },
         onGrant = { container.shizuku.requestPermission() },
     )
@@ -1620,9 +1625,12 @@ private fun StorageAccessCard(allFiles: Boolean, onGrant: () -> Unit) {
 }
 
 @Composable
-private fun ShizukuCard(
+internal fun ShizukuCard(
     state: ShizukuState,
     serviceState: UserServiceState,
+    failure: com.androidharness.app.data.env.ShizukuConnectionFailure?,
+    connectionReport: () -> String,
+    startupReport: suspend () -> com.androidharness.app.data.env.ShizukuStartupReport,
     onRefresh: () -> Unit,
     onGrant: () -> Unit,
 ) {
@@ -1640,6 +1648,7 @@ private fun ShizukuCard(
                             ShizukuState.RUNNING_NO_PERMISSION -> "Running: grant AndroidHarness access."
                             ShizukuState.GRANTED -> when (serviceState) {
                                 UserServiceState.BOUND_READY -> "Connected: shell privileges ready."
+                                UserServiceState.COMPAT_READY -> "Connected in compatibility mode: shell privileges ready."
                                 UserServiceState.BINDING -> "Access granted. Connecting to the shell runner…"
                                 UserServiceState.BIND_FAILED -> "Access granted, but the shell runner could not connect. Retry the connection."
                                 UserServiceState.NOT_BOUND -> "Access granted. Shell runner not connected."
@@ -1650,17 +1659,19 @@ private fun ShizukuCard(
                     )
                 }
             }
+            ShizukuFailureDetails(failure, connectionReport, startupReport,
+                recovered = serviceState == UserServiceState.COMPAT_READY)
             when (state) {
                 ShizukuState.GRANTED -> {
-                    if (serviceState == UserServiceState.BOUND_READY) {
+                    if (serviceState.isReady) {
                         Text(
-                            "Privileged runner ready ✓",
+                            if (serviceState == UserServiceState.COMPAT_READY) "Compatibility runner ready ✓" else "Privileged runner ready ✓",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
                     TextButton(onClick = onRefresh, enabled = serviceState != UserServiceState.BINDING) {
-                        Text(if (serviceState == UserServiceState.BOUND_READY) "Re-check status" else "Retry connection")
+                        Text(if (serviceState.isReady) "Re-check status" else "Retry connection")
                     }
                 }
                 ShizukuState.RUNNING_NO_PERMISSION -> Button(onClick = onGrant) { Text("Grant Shizuku access") }

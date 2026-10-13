@@ -28,6 +28,7 @@
 
     <!-- Allow discovering speech recognition service engines on Android 11+ -->
     <queries>
+        <package android:name="moe.shizuku.privileged.api" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>

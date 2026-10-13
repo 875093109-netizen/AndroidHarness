@@ -108,8 +108,7 @@ fun SetupScreen(
     }
 
     // ---- Step completion -------------------------------------------------
-    val shizukuDone = shizukuState == ShizukuState.GRANTED && serviceState ==
-        com.androidharness.app.data.env.UserServiceState.BOUND_READY
+    val shizukuDone = shizukuState == ShizukuState.GRANTED && serviceState.isReady
     val envDone = envState is EnvState.Ready
     val completed = listOf(storageGranted, notifGranted, shizukuDone, envDone, batteryExempt).count { it }
 
@@ -189,7 +188,7 @@ fun SetupScreen(
                         ShizukuState.NOT_RUNNING -> "Open the Shizuku app and start it"
                         ShizukuState.RUNNING_NO_PERMISSION -> "Grant access to unlock ADB-level commands"
                         ShizukuState.GRANTED ->
-                            if (serviceState == com.androidharness.app.data.env.UserServiceState.BOUND_READY)
+                            if (serviceState.isReady)
                                 "Connected: privileged shell ready"
                             else "Granted: waiting for user service…"
                     },
