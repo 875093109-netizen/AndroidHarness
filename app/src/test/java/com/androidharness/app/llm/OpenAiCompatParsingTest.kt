@@ -73,7 +73,7 @@ class OpenAiCompatParsingTest {
                 "tool_calls":[{"index":0,"id":"call_1","type":"function",
                                "function":{"name":"read_file","arguments":""}}]}}]}""",
         )
-        assertTrue("null must not emit text nor flush", first.isEmpty())
+        assertTrue("null must not emit text nor flush", first.all { it is StreamEvent.ToolCallDelta })
 
         parse("""{"choices":[{"index":0,"delta":{"tool_calls":[
                    {"index":0,"function":{"arguments":"{\"path\":\"a.txt\"}"}}]}}]}""")
@@ -132,9 +132,10 @@ class OpenAiCompatParsingTest {
                  "reasoning_content":"thinking hard",
                  "tool_calls":[{"index":0,"id":"cb","function":{"name":"grep","arguments":"{}"}}]}}]}""",
         )
-        assertEquals(2, out.size)
+        assertEquals(3, out.size)
         assertEquals(StreamEvent.TextDelta("Hi"), out[0])
         assertEquals(StreamEvent.ThinkingDelta("thinking hard"), out[1])
+        assertEquals(StreamEvent.ToolCallDelta("cb", "grep", "{}"), out[2])
 
         val finish = parse("""{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}""")
         assertEquals("grep", (finish[0] as StreamEvent.ToolCallReady).call.name)

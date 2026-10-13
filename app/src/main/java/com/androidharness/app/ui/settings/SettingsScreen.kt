@@ -2055,6 +2055,19 @@ private fun ChatBehaviorSection(container: AppContainer, settings: AppSettings, 
     SettingsHeader("Chat behavior")
     SettingsPanel(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsAnchor("Show live code") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+                    .clickable { scope.launch { container.settings.setShowLiveCode(!settings.showLiveCode) } }) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Show live code", style = MaterialTheme.typography.bodyLarge)
+                        Text("Preview files, line changes and estimated tokens while the agent generates code.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = settings.showLiveCode,
+                        onCheckedChange = { scope.launch { container.settings.setShowLiveCode(it) } })
+                }
+            }
+            HorizontalDivider()
             SettingsAnchor("Resume last chat on launch") {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {

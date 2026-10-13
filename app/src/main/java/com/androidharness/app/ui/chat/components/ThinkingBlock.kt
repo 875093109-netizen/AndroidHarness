@@ -96,9 +96,9 @@ internal fun ThinkingBlock(
                     color = scheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                if (live && !expanded) {
+                if (!expanded) {
                     Text(
-                        formatCharCount(thinking.length),
+                        "≈ ${com.androidharness.app.ui.common.formatTokens((thinking.length + 3) / 4)} tokens",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
@@ -161,6 +161,3 @@ internal fun ThinkingBlock(
         }
     }
 }
-
-private fun formatCharCount(count: Int): String = com.androidharness.app.ui.common.formatTokens(count)
-

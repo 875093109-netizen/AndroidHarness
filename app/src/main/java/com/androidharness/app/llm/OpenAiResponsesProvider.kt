@@ -258,13 +258,19 @@ class OpenAiResponsesProvider(
                     val callId = item["call_id"]?.jsonPrimitive?.contentOrNull ?: itemId
                     val name = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
                     acc[itemId] = Triple(callId, name, StringBuilder())
+                    events += StreamEvent.ToolCallDelta(callId, name, "")
                 }
             }
 
             type == "response.function_call_arguments.delta" -> {
                 val itemId = event["item_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 event["delta"]?.jsonPrimitive?.contentOrNull
-                    ?.let { acc[itemId]?.third?.append(it) }
+                    ?.let { fragment ->
+                        acc[itemId]?.let { entry ->
+                            entry.third.append(fragment)
+                            events += StreamEvent.ToolCallDelta(entry.first, entry.second, fragment)
+                        }
+                    }
             }
 
             type == "response.output_item.done" -> {

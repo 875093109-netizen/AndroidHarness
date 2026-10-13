@@ -80,6 +80,8 @@ data class RequestOptions(
 sealed interface StreamEvent {
     data class TextDelta(val text: String) : StreamEvent
     data class ThinkingDelta(val text: String) : StreamEvent
+    /** Display-only argument fragments. These never authorize or execute a tool. */
+    data class ToolCallDelta(val id: String, val name: String, val arguments: String, val replace: Boolean = false) : StreamEvent
     data class ToolCallReady(val call: ToolCallData) : StreamEvent
     data class ToolCallBatch(val calls: List<ToolCallData>) : StreamEvent
     data class Batch(val events: List<StreamEvent>) : StreamEvent

@@ -1053,6 +1053,7 @@ fun ChatScreen(
                     state.messages.lastOrNull()?.id,
                     state.streamingText?.length,
                     state.streamingThinking?.length,
+                    state.codeDrafts,
                 ) {
                     if (!pinnedToBottom) unreadWhileAway = true
                 }
@@ -1380,6 +1381,17 @@ fun ChatScreen(
                                         webPreviewUrl = url
                                         showWebPreview = true
                                     },
+                                )
+                            }
+                        }
+                    }
+
+                    if (state.showLiveCode) {
+                        state.codeDrafts.values.forEach { draft ->
+                            indexedItem(key = "live-code-${draft.id}", contentType = ChatListContentType.Tool) {
+                                com.androidharness.app.ui.chat.components.LiveCodeCard(
+                                    draft = draft,
+                                    awaitingApproval = state.pendingApproval?.call?.id == draft.id,
                                 )
                             }
                         }

@@ -117,6 +117,8 @@ sealed interface AgentEvent {
     data class ProviderUsed(val providerId: String) : AgentEvent
     data class Text(val delta: String) : AgentEvent
     data class Thinking(val delta: String) : AgentEvent
+    data class CodeDraft(val draft: LiveCodeDraft) : AgentEvent
+    data object CodeDraftsCleared : AgentEvent
     data class ToolStarted(val call: ToolCallData) : AgentEvent
     data class ToolFinished(val callId: String, val result: ToolResult) : AgentEvent
     data class ApprovalNeeded(val request: ApprovalRequest) : AgentEvent
@@ -136,6 +138,7 @@ sealed interface AgentEvent {
         val providerName: String = "",
         val cacheReported: Boolean = false,
         val cachePrices: com.androidharness.app.llm.ModelsDev.CachePrices? = null,
+        val parentCallId: String? = null,
     ) : AgentEvent
     /** A transient provider failure will be retried after [delayMs]. */
     data class Retrying(val attempt: Int, val delayMs: Long, val reason: String) : AgentEvent
@@ -170,6 +173,7 @@ sealed interface AgentEvent {
         val existedBefore: Boolean = false,
         val existsAfter: Boolean = true,
         val beforeText: String? = null,
+        val callId: String? = null,
     ) : AgentEvent
 
     /**
@@ -250,6 +254,7 @@ class AgentEngine(
             if (!agentContextEnabled) "" else systemPrompt(workspace, mode, fullAccess = fullAccess, repoMapEnabled = repoMapEnabled) +
                 if (pinnedInstructions.isBlank()) "" else "\n\nPinned user instructions:\n$pinnedInstructions"
         var systemPrompt = runSystemPrompt(false)
+        var promptShizukuStatus = shizukuAgentStatus(shizuku.state.value, shizuku.serviceState.value, shizuku.isServiceReady())
         var promptSandboxOff = false
         val runRegistry = registry.withExtra(extraTools)
         val tools = if (!agentContextEnabled) emptyList() else runRegistry.schemas(
@@ -303,9 +308,11 @@ class AgentEngine(
             val effectiveMode = permissionMode()
             val sandboxOff = effectiveMode == PermissionMode.FULL_ACCESS
             val nextReplySettings = cavemanSettings()
-            if (sandboxOff != promptSandboxOff || replySettings != nextReplySettings) {
+            val nextShizukuStatus = shizukuAgentStatus(shizuku.state.value, shizuku.serviceState.value, shizuku.isServiceReady())
+            if (sandboxOff != promptSandboxOff || replySettings != nextReplySettings || promptShizukuStatus != nextShizukuStatus) {
                 replySettings = nextReplySettings
                 promptSandboxOff = sandboxOff
+                promptShizukuStatus = nextShizukuStatus
                 systemPrompt = runSystemPrompt(sandboxOff)
             }
             // Open path resolution only exists on real-filesystem workspaces;
@@ -348,6 +355,22 @@ class AgentEngine(
             var requestStartedNs = System.nanoTime()
             var firstTokenNs = 0L
             var lastTokenNs = 0L
+            val codeTracker = LiveCodeTracker()
+            emit(AgentEvent.CodeDraftsCleared)
+
+            suspend fun codeReady(call: ToolCallData) {
+                calls += call
+                codeTracker.ready(call, execWorkspace)?.let { emit(AgentEvent.CodeDraft(it)) }
+            }
+
+            suspend fun codeDelta(event: StreamEvent.ToolCallDelta) {
+                if (event.arguments.isNotEmpty()) {
+                    val now = System.nanoTime()
+                    if (firstTokenNs == 0L) firstTokenNs = now
+                    lastTokenNs = now
+                }
+                codeTracker.delta(event, execWorkspace)?.let { emit(AgentEvent.CodeDraft(it)) }
+            }
 
             val streamEventHandler: suspend (StreamEvent) -> Unit = { event ->
                 when (event) {
@@ -373,8 +396,9 @@ class AgentEngine(
                         thinking.append(event.text)
                         emit(AgentEvent.Thinking(event.text))
                     }
-                    is StreamEvent.ToolCallReady -> calls += event.call
-                    is StreamEvent.ToolCallBatch -> calls += event.calls
+                    is StreamEvent.ToolCallDelta -> codeDelta(event)
+                    is StreamEvent.ToolCallReady -> codeReady(event.call)
+                    is StreamEvent.ToolCallBatch -> event.calls.forEach { codeReady(it) }
                     is StreamEvent.Batch -> event.events.forEach { nested ->
                         when (nested) {
                             is StreamEvent.TextDelta -> {
@@ -395,8 +419,9 @@ class AgentEngine(
                                 thinking.append(nested.text)
                                 emit(AgentEvent.Thinking(nested.text))
                             }
-                            is StreamEvent.ToolCallReady -> calls += nested.call
-                            is StreamEvent.ToolCallBatch -> calls += nested.calls
+                            is StreamEvent.ToolCallDelta -> codeDelta(nested)
+                            is StreamEvent.ToolCallReady -> codeReady(nested.call)
+                            is StreamEvent.ToolCallBatch -> nested.calls.forEach { codeReady(it) }
                             else -> {}
                         }
                     }
@@ -425,6 +450,7 @@ class AgentEngine(
                     provider.streamChat(config, apiKey, requestSystemPrompt, working, tools, requestOptions)
                 },
                 onAttemptStart = {
+                    codeTracker.clear()
                     requestStartedNs = System.nanoTime()
                     outputTokens = 0
                     firstTokenNs = 0L
@@ -454,6 +480,7 @@ class AgentEngine(
                         provider.streamChat(config, apiKey, requestSystemPrompt, working, tools, requestOptions)
                     },
                     onAttemptStart = {
+                        codeTracker.clear()
                         requestStartedNs = System.nanoTime()
                         outputTokens = 0
                         firstTokenNs = 0L
@@ -1024,6 +1051,7 @@ class AgentEngine(
                                 existedBefore = existedBefore,
                                 existsAfter = nodeIsFile,
                                 beforeText = before,
+                                callId = call.id,
                             ),
                         )
                     }
@@ -1260,6 +1288,7 @@ class AgentEngine(
                                 event.cachedInputTokens, event.cacheWriteTokens,
                                 config.model, config.name, cacheReported = event.cacheReported,
                                 cachePrices = if (com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(config.id)) null else com.androidharness.app.llm.ModelsDev.exactCachePrices(config.baseUrl, config.model),
+                                parentCallId = parentCallId,
                             )
                         )
                         else -> {}
@@ -1620,12 +1649,8 @@ Rules:
 
         if (workspace !is com.androidharness.app.workspace.SshFs) {
             // Shizuku guidance: tell the agent the current state so it can guide the user.
-            when {
-                shizuku.isGranted() -> sb.append("- Shizuku is connected with ADB-shell privileges: the shell tool automatically runs as the shell user whenever the working directory needs it (system paths, shared storage), with the same toolchain. Just use shell normally.\n")
-                shizuku.state.value == com.androidharness.app.data.env.ShizukuState.RUNNING_NO_PERMISSION -> sb.append("- Shizuku is running but AndroidHarness hasn't been granted access yet. If a task needs ADB-level shell access (edit system files, access any folder, etc.), tell the user to go to Settings → Terminal and tap \"Grant Shizuku access\".\n")
-                shizuku.state.value == com.androidharness.app.data.env.ShizukuState.NOT_RUNNING -> sb.append("- Shizuku is installed but not running. If a task needs ADB-level shell access, tell the user to open the Shizuku app, start the service, then in AndroidHarness go to Settings → Terminal and tap \"Refresh status\" followed by \"Grant Shizuku access\".\n")
-                else -> {} // NOT_INSTALLED: no mention; don't distract the agent.
-            }
+            shizukuAgentStatus(shizuku.state.value, shizuku.serviceState.value, shizuku.isServiceReady())
+                ?.let { sb.append("- ").append(it).append('\n') }
             sb.append(
                 "- Shell environment rules (IMPORTANT): always call commands by plain name (ls, grep, head, python3, git, node…). NEVER work around the environment yourself: do not invoke /system/bin/linker64, /apex/.../linker64, or /system/bin/toybox directly, and do not craft alternate PATHs. The harness already makes every toolchain binary runnable in every tier. " +
                     "If a basic command fails with \"Permission denied\" or exit code 126/127, the environment is misconfigured on this device: run the env_status tool once, tell the user what it reports, and stop retrying command variants.\n",

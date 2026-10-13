@@ -64,6 +64,7 @@ private val subSettingsEntries = listOf(
     SettingsSearchEntry("Tool-call iteration limit", "Agent behavior · Limit agent tool iterations", SettingsPage.AGENT, "iterations tools max limit", anchor = "Tool-call iteration limit"),
     SettingsSearchEntry("Project instructions (AGENTS.md)", "Agent behavior · Edit workspace instructions injected into every run", SettingsPage.AGENT, "agents instructions memory workspace prompt", anchor = "Project instructions (AGENTS.md)"),
     SettingsSearchEntry("Resume last chat on launch", "Chat & commands · Open your most recent chat when the app starts", SettingsPage.CHAT, "startup launch chat resume", anchor = "Resume last chat on launch"),
+    SettingsSearchEntry("Show live code", "Chat & commands · Preview code generation and line changes", SettingsPage.CHAT, "writing streaming diff added removed tokens", anchor = "Show live code"),
     SettingsSearchEntry("Workspace code index (Repo map)", "Chat & commands · Index project symbols for agent context", SettingsPage.CHAT, "repo map code index symbols", anchor = "Workspace code index (Repo map)"),
     SettingsSearchEntry("CodeGraph", "Code intelligence · Install CodeGraph and enable semantic indexes per workspace", SettingsPage.CODE_INTELLIGENCE, "codegraph explore node impact affected sync semantic graph"),
     SettingsSearchEntry("CodeGraph workspace index", "Code intelligence · Enable, sync or rebuild the active project index", SettingsPage.CODE_INTELLIGENCE, "project workspace initialize reindex graph"),

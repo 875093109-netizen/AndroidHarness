@@ -30,6 +30,7 @@ import com.androidharness.app.ui.files.*
 import com.androidharness.app.ui.theme.HarnessTheme
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -43,6 +44,105 @@ import java.util.concurrent.atomic.AtomicReference
 class AssistantToolsDeviceTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val c get() = (instrumentation.targetContext.applicationContext as HarnessApp).container
+
+    @Test fun streamedCodeIsVisibleBeforeApprovalAndOnlyCompleteApprovedCallWrites() = runBlocking {
+        val root = File(c.appContext.cacheDir, "live-code-pipeline-${System.nanoTime()}").apply { mkdirs() }
+        val session = c.sessions.createSession("Live code pipeline fixture")
+        val file = File(root, "example.kt")
+        val call = com.androidharness.app.core.ToolCallData("live-write", "write_file", """{"path":"example.kt","content":"one\ntwo\nthree\nfour\nfive\n"}""")
+        var request = 0
+        val fixture = object : LlmProvider {
+            override fun streamChat(config: ProviderConfig, apiKey: String, systemPrompt: String,
+                messages: List<com.androidharness.app.core.ChatMessage>, tools: List<ToolSchema>, options: RequestOptions) = kotlinx.coroutines.flow.flow {
+                if (request++ == 0) {
+                    emit(StreamEvent.ToolCallDelta(call.id, call.name, "{\"path\":\"example.kt\",\"content\":\"one\\n"))
+                    for (line in listOf("two", "three", "four", "five")) {
+                        kotlinx.coroutines.delay(120)
+                        emit(StreamEvent.ToolCallDelta(call.id, call.name, "$line\\n"))
+                    }
+                    emit(StreamEvent.ToolCallReady(call))
+                    emit(StreamEvent.Usage(20, 100))
+                    emit(StreamEvent.Done("tool_calls"))
+                } else {
+                    emit(StreamEvent.TextDelta("Saved example.kt"))
+                    emit(StreamEvent.Done("stop"))
+                }
+            }
+        }
+        val engine = com.androidharness.app.agent.AgentEngine({ fixture }, c.registry, c.checkpoints, c.images,
+            c.linuxEnv, c.shizuku, c.skills)
+        val counts = mutableListOf<Int>()
+        var approved = false
+        var measured = false
+        try {
+            engine.run(session, "turn-live", ProviderConfig("fixture", "Fixture",
+                ProviderType.OPENAI_COMPAT, "http://localhost", "fixture"), "", emptyList(),
+                permissionMode = { com.androidharness.app.agent.PermissionMode.CONFIRM_ALL }, sessionAllowedTools = mutableSetOf(),
+                workspace = com.androidharness.app.workspace.FileFs(root), options = RequestOptions(), maxContextTokens = 100_000,
+                mode = com.androidharness.app.agent.AgentMode.ACT, repoMapEnabled = false).collect { event ->
+                when (event) {
+                    is com.androidharness.app.agent.AgentEvent.CodeDraft -> {
+                        assertFalse("Preview must not write the file", file.exists())
+                        if (event.draft.stage == com.androidharness.app.agent.CodeDraftStage.GENERATING)
+                            counts += event.draft.files.single().added
+                    }
+                    is com.androidharness.app.agent.AgentEvent.ApprovalNeeded -> {
+                        assertFalse(file.exists()); approved = true; event.request.response.complete(true)
+                    }
+                    is com.androidharness.app.agent.AgentEvent.FileEdited -> {
+                        assertTrue(approved); assertEquals(5L, event.added); assertEquals(0L, event.removed)
+                        assertEquals(call.id, event.callId); measured = true
+                    }
+                    else -> Unit
+                }
+            }
+            assertEquals(listOf(1, 2, 3, 4, 5), counts)
+            assertTrue(approved); assertTrue(measured)
+            assertEquals("one\ntwo\nthree\nfour\nfive\n", file.readText())
+        } finally {
+            c.sessions.session(session)?.let { c.sessions.deleteSession(it) }
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun liveCodeCountsPreviewAndTokensFitNarrowPhoneWithLargeText() {
+        fun awaitLiveText(text: String) = await {
+            it.text?.toString()?.contains(text) == true || it.contentDescription?.toString()?.contains(text) == true
+        }
+        val draft = androidx.compose.runtime.mutableStateOf(com.androidharness.app.agent.LiveCodeDraft(
+            "live-test", "edit_file", listOf(com.androidharness.app.agent.LiveCodeFile(
+                "src/main/java/com/example/very/long/project/path/MainActivity.kt", 0, 0, emptyList())), 40))
+        ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
+            scenario.onActivity { host -> host.setContent { HarnessTheme {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides
+                    androidx.compose.ui.unit.Density(density.density, 1.4f)) {
+                    Column(Modifier.width(320.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(8.dp)) {
+                        com.androidharness.app.ui.chat.components.LiveCodeCard(draft.value)
+                    }
+                }
+            } } }
+            awaitLiveText("Live code"); awaitLiveText("MainActivity.kt"); awaitLiveText("Kotlin")
+            for (count in 1..5) {
+                scenario.onActivity { draft.value = draft.value.copy(files = listOf(draft.value.files.single().copy(
+                    added = count, lines = (1..count).map { com.androidharness.app.agent.LiveCodeLine('+', "val line$it = $it") }))) }
+                awaitLiveText("$count lines added")
+                SystemClock.sleep(180)
+            }
+            scenario.onActivity { draft.value = draft.value.copy(files = listOf(draft.value.files.single().copy(removed = 4))) }
+            awaitLiveText("4 lines removed"); awaitLiveText("≈ 40 tool tokens · estimated")
+            SystemClock.sleep(220)
+            screenshot("live-code-narrow-large-text")
+            var toggle = awaitLiveText("Collapse code preview")
+            while (!toggle.isClickable && toggle.parent != null) toggle = toggle.parent
+            assertTrue(toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            awaitLiveText("MainActivity.kt"); awaitLiveText("5 lines added")
+            scenario.onActivity { draft.value = draft.value.copy(stage = com.androidharness.app.agent.CodeDraftStage.SAVED, responseOutputTokens = 123) }
+            awaitLiveText("Saved"); awaitLiveText("Response: 123 output tokens")
+            SystemClock.sleep(220)
+            screenshot("live-code-saved-collapsed")
+        }
+    }
 
     @Test fun favouritesAndRecentPersistWithoutChangingModelOnStar() {
         val name = "shortcuts-test-${System.nanoTime()}"

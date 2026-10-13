@@ -291,7 +291,7 @@ class OpenAiCompatProvider(
                 indexToId[index] ?: "idx_$index"
             }
             val entry = acc.getOrPut(key) {
-                Triple(StringBuilder(newId ?: ""), StringBuilder(), StringBuilder())
+                Triple(StringBuilder(newId ?: "call_${System.nanoTime()}"), StringBuilder(), StringBuilder())
             }
             if (!newId.isNullOrBlank() && entry.first.isEmpty()) {
                 entry.first.append(newId)
@@ -299,12 +299,16 @@ class OpenAiCompatProvider(
             tc["function"]?.jsonObjectOrAbsent()?.let { fn ->
                 fn["name"]?.primitiveOrAbsent()?.contentOrNull?.let { entry.second.append(it) }
                 when (val arguments = fn["arguments"]) {
-                    is JsonPrimitive -> arguments.contentOrNull?.let { entry.third.append(it) }
+                    is JsonPrimitive -> arguments.contentOrNull?.let {
+                        entry.third.append(it)
+                        events += StreamEvent.ToolCallDelta(entry.first.toString(), entry.second.toString(), it)
+                    }
                     // Object arguments are a complete snapshot, not a string fragment.
                     // Preserve nested values and replace any earlier snapshot.
                     is JsonObject -> {
                         entry.third.setLength(0)
                         entry.third.append(arguments.toString())
+                        events += StreamEvent.ToolCallDelta(entry.first.toString(), entry.second.toString(), arguments.toString(), replace = true)
                     }
                     null -> {}
                     else -> {

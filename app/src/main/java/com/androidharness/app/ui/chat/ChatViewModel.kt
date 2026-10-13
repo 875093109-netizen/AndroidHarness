@@ -94,6 +94,8 @@ data class ChatUiState(
     /** Turn currently being streamed; keys the live items in the message list. */
     val currentTurnId: String? = null,
     val runningCalls: List<ToolCallData> = emptyList(),
+    val codeDrafts: Map<String, com.androidharness.app.agent.LiveCodeDraft> = emptyMap(),
+    val showLiveCode: Boolean = true,
     val pendingApproval: ApprovalRequest? = null,
     val pendingQuestion: QuestionRequest? = null,
     val busy: Boolean = false,
@@ -395,7 +397,7 @@ class ChatViewModel(
         }
         viewModelScope.launch {
             c.settings.settings.collect {
-                _state.update { st -> st.copy(skills = chatSkills().list()) }
+                _state.update { st -> st.copy(skills = chatSkills().list(), showLiveCode = it.showLiveCode) }
             }
         }
         viewModelScope.launch {
@@ -463,6 +465,7 @@ class ChatViewModel(
                             hasOlderMessages = window.hasOlder, isLoadingOlderMessages = false,
                             streamingText = null, streamingThinking = null,
                             streamingMessageId = null, streamingCommitted = false,
+                            codeDrafts = emptyMap(),
                         ).withCurrentAction()
                     }
                 } else {
@@ -600,6 +603,7 @@ class ChatViewModel(
                 streamingCommitted = committed,
                 currentTurnId = live.turnId,
                 runningCalls = live.runningCalls,
+                codeDrafts = live.codeDrafts,
                 pendingApproval = live.pendingApproval,
                 pendingQuestion = live.pendingQuestion,
                 pendingEnvironment = live.pendingEnvironment,
@@ -701,6 +705,7 @@ class ChatViewModel(
         }
         retryStatus != null -> retryStatus
         runningCalls.isNotEmpty() -> currentToolAction ?: describeToolCall(runningCalls.last())
+        codeDrafts.values.any { it.stage == com.androidharness.app.agent.CodeDraftStage.GENERATING } -> "Generating code…"
         streamingThinking != null && streamingText.isNullOrEmpty() -> "Thinking…"
         streamingText != null -> "Writing response…"
         currentToolAction != null -> currentToolAction

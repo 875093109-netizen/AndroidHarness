@@ -80,6 +80,7 @@ class RunManager(
         /** Id of the most recently committed assistant message, for the UI's live→committed handoff. */
         val lastCommittedId: String? = null,
         val runningCalls: List<ToolCallData> = emptyList(),
+        val codeDrafts: Map<String, LiveCodeDraft> = emptyMap(),
         val pendingApproval: ApprovalRequest? = null,
         val pendingQuestion: QuestionRequest? = null,
         val pendingEnvironment: EnvironmentRequest? = null,
@@ -204,6 +205,7 @@ class RunManager(
         s.pendingEnvironment != null -> "Linux environment needs your attention"
         s.retryStatus != null -> s.retryStatus
         s.runningCalls.isNotEmpty() -> s.currentToolAction ?: describeToolCall(s.runningCalls.last())
+        s.codeDrafts.values.any { it.stage == CodeDraftStage.GENERATING } -> "Generating code…"
         s.streamingThinking != null && s.streamingText.isNullOrEmpty() -> "Thinking…"
         s.streamingText != null -> "Writing response…"
         s.currentToolAction != null -> s.currentToolAction
@@ -351,6 +353,7 @@ class RunManager(
             it.copy(
                 running = true, cancelled = false, error = null, turnId = turnId,
                 streamingText = "", streamingThinking = null,
+                codeDrafts = emptyMap(),
                 liveMessageId = UUID.randomUUID().toString(), lastCommittedId = null,
                 queuedMessage = null, pendingPlan = null,
             )
@@ -498,6 +501,7 @@ class RunManager(
                         // which committed row it is waiting on.
                         liveMessageId = null,
                         runningCalls = emptyList(),
+                        codeDrafts = emptyMap(),
                         pendingApproval = null,
                         pendingQuestion = null,
                         pendingEnvironment = null,
@@ -623,17 +627,36 @@ class RunManager(
                         streamingText = null, streamingThinking = null,
                         liveMessageId = null, lastCommittedId = id,
                         thinkingStartedAt = null, thinkingEndedAt = null,
+                        codeDrafts = it.codeDrafts.filterValues { draft -> draft.stage != CodeDraftStage.GENERATING },
                     )
                 }
             }
 
+            is AgentEvent.CodeDraft -> live.update { st ->
+                val current = st.codeDrafts.filterValues { it.stage != CodeDraftStage.SAVED && it.stage != CodeDraftStage.FAILED }
+                st.copy(codeDrafts = (current + (event.draft.id to event.draft)).entries.toList().takeLast(8).associate { it.toPair() }, retryStatus = null)
+            }
+            AgentEvent.CodeDraftsCleared -> live.update { st -> st.copy(codeDrafts = st.codeDrafts.filterValues {
+                it.stage == CodeDraftStage.SAVED || it.stage == CodeDraftStage.FAILED
+            }) }
             is AgentEvent.ToolStarted -> {
                 flushDeltas(sessionId)
                 lingerJobs.remove(sessionId)?.cancel()
+                // A large batch may have evicted this preview. Bring the active file to the end,
+                // where a chat following live work can see it, even for one-shot tool responses.
+                val preview = live.value.codeDrafts[event.call.id] ?: LiveCodePreview.build(
+                    event.call.id, event.call.name, event.call.argumentsJson, complete = true,
+                )?.copy(comparisonAvailable = event.call.name != "write_file",
+                    responseOutputTokens = live.value.codeDrafts.values.firstOrNull {
+                        it.stage != CodeDraftStage.SAVED && it.stage != CodeDraftStage.FAILED
+                    }?.responseOutputTokens)
                 live.update {
                     it.copy(
                         runningCalls = it.runningCalls + event.call,
                         currentToolAction = describeToolCall(event.call),
+                        codeDrafts = if (preview == null) it.codeDrafts else
+                            it.codeDrafts.filterValues { draft -> draft.stage != CodeDraftStage.SAVED && draft.stage != CodeDraftStage.FAILED } - event.call.id +
+                                (event.call.id to preview.copy(stage = CodeDraftStage.WRITING)),
                     )
                 }
             }
@@ -650,6 +673,12 @@ class RunManager(
                 sessions.addMessage(sessionId, event.message, turnId)
 
             is AgentEvent.FileEdited -> {
+                live.update { st -> st.copy(codeDrafts = st.codeDrafts.mapValues { (id, draft) ->
+                    if (id != event.callId) draft else draft.copy(comparisonAvailable = true, files = draft.files.map { file ->
+                        if (com.androidharness.app.workspace.normalizeRelPath(file.path) != event.relPath) file
+                        else file.copy(added = event.added.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), removed = event.removed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+                    })
+                }) }
                 repoMap?.invalidate(event.relPath)
                 sessions.recordFileEdit(
                     sessionId, event.turnId, event.relPath, event.added, event.removed,
@@ -673,6 +702,9 @@ class RunManager(
                         runningCalls = remaining,
                         pendingApproval = null,
                         subagentSteps = it.subagentSteps - event.callId,
+                        codeDrafts = it.codeDrafts.mapValues { (id, draft) ->
+                            if (id == event.callId) draft.copy(stage = if (event.result.ok) CodeDraftStage.SAVED else CodeDraftStage.FAILED) else draft
+                        },
                     )
                 }
                 if (remaining.isEmpty()) {
@@ -690,6 +722,10 @@ class RunManager(
             }
 
             is AgentEvent.Usage -> {
+                if (event.parentCallId == null) live.update { st -> st.copy(codeDrafts = st.codeDrafts.mapValues { (_, draft) ->
+                    if (draft.stage == CodeDraftStage.SAVED || draft.stage == CodeDraftStage.FAILED) draft
+                    else draft.copy(responseOutputTokens = event.outputTokens.takeIf { it > 0 })
+                }) }
                 sessions.addUsage(
                     sessionId,
                     event.inputTokens.toLong(),
@@ -731,7 +767,7 @@ class RunManager(
             is AgentEvent.Retrying -> {
                 val seconds = (event.delayMs / 1000.0).let { if (it < 1) "<1" else "%.0f".format(it) }
                 live.update {
-                    it.copy(retryStatus = "Retrying in ${seconds}s (attempt ${event.attempt}): ${event.reason}")
+                    it.copy(retryStatus = "Retrying in ${seconds}s (attempt ${event.attempt}): ${event.reason}", codeDrafts = emptyMap())
                 }
             }
 
@@ -754,7 +790,7 @@ class RunManager(
                 if (compactionSnapshots.remove(sessionId) != null) {
                     sessions.addMessage(sessionId, ChatMessage(role = Role.SYSTEM, text = event.message, isError = true))
                 }
-                live.update { it.copy(error = event.message, compactionNote = null) }
+                live.update { it.copy(error = event.message, compactionNote = null, codeDrafts = emptyMap()) }
             }
 
             is AgentEvent.SubagentStep -> live.update { st ->

@@ -142,9 +142,10 @@ class AnthropicProvider(
                     val index = event["index"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
                     val block = event["content_block"]?.jsonObjectOrAbsent() ?: return@mapNotNull null
                     if (block["type"]?.jsonPrimitive?.contentOrNull == "tool_use") {
-                        val id = block["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val id = block["id"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: "toolu_${System.nanoTime()}"
                         val name = block["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
                         toolBlocks[index] = Triple(id, name, StringBuilder())
+                        return@mapNotNull StreamEvent.ToolCallDelta(id, name, "")
                     }
                     null
                 }
@@ -160,9 +161,12 @@ class AnthropicProvider(
                             ?.let { StreamEvent.ThinkingDelta(it) }
 
                         "input_json_delta" -> {
-                            delta["partial_json"]?.jsonPrimitive?.contentOrNull
-                                ?.let { toolBlocks[index]?.third?.append(it) }
-                            null
+                            val fragment = delta["partial_json"]?.jsonPrimitive?.contentOrNull
+                            val block = toolBlocks[index]
+                            if (fragment == null || block == null) null else {
+                                block.third.append(fragment)
+                                StreamEvent.ToolCallDelta(block.first, block.second, fragment)
+                            }
                         }
 
                         else -> null

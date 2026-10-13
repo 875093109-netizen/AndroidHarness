@@ -82,6 +82,7 @@ data class AppSettings(
     val voicePromoSeen: Boolean = false,
     /** Resume the last opened chat session when app launches. */
     val resumeLastChat: Boolean = true,
+    val showLiveCode: Boolean = true,
     /** ID of the last active chat session. */
     val lastActiveSessionId: String? = null,
     /** Generate and inject compact codebase symbol index (Repo map) into agent context. */
@@ -140,6 +141,7 @@ class SettingsRepository(private val context: Context) {
         val GROQ_WHISPER_MODEL = stringPreferencesKey("groq_whisper_model")
         val VOICE_PROMO_SEEN = booleanPreferencesKey("voice_promo_seen")
         val RESUME_LAST_CHAT = booleanPreferencesKey("resume_last_chat")
+        val SHOW_LIVE_CODE = booleanPreferencesKey("show_live_code")
         val LAST_ACTIVE_SESSION = stringPreferencesKey("last_active_session_id")
         val REPO_MAP_ENABLED = booleanPreferencesKey("repo_map_enabled")
         val LOCAL_MODEL_AGENT_CONTEXT = booleanPreferencesKey("local_model_agent_context")
@@ -193,6 +195,7 @@ class SettingsRepository(private val context: Context) {
             groqWhisperModel = prefs[Keys.GROQ_WHISPER_MODEL] ?: AppSettings.GROQ_MODEL_WHISPER_V3,
             voicePromoSeen = prefs[Keys.VOICE_PROMO_SEEN] ?: false,
             resumeLastChat = prefs[Keys.RESUME_LAST_CHAT] ?: true,
+            showLiveCode = prefs[Keys.SHOW_LIVE_CODE] ?: true,
             lastActiveSessionId = prefs[Keys.LAST_ACTIVE_SESSION],
             repoMapEnabled = prefs[Keys.REPO_MAP_ENABLED] ?: true,
             localModelAgentContext = prefs[Keys.LOCAL_MODEL_AGENT_CONTEXT] ?: false,
@@ -220,6 +223,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.VOICE_ENGINE] = s.voiceEngine
             p[Keys.GROQ_WHISPER_MODEL] = s.groqWhisperModel
             p[Keys.RESUME_LAST_CHAT] = s.resumeLastChat
+            p[Keys.SHOW_LIVE_CODE] = s.showLiveCode
             p[Keys.REPO_MAP_ENABLED] = s.repoMapEnabled
             p[Keys.LOCAL_MODEL_AGENT_CONTEXT] = s.localModelAgentContext
             p[Keys.CAVEMAN_INSTALLED] = s.cavemanInstalled
@@ -421,6 +425,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setRepoMapEnabled(enabled: Boolean) {
         context.settingsStore.edit { it[Keys.REPO_MAP_ENABLED] = enabled }
+    }
+
+    suspend fun setShowLiveCode(enabled: Boolean) {
+        context.settingsStore.edit { it[Keys.SHOW_LIVE_CODE] = enabled }
     }
 
     suspend fun setCavemanInstalled(installed: Boolean) {

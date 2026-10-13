@@ -86,7 +86,7 @@ class OpenAiCompatStreamTest {
             completeCall,
         ))).toList()
 
-        assertTrue(events.single() is StreamEvent.Failure)
+        assertTrue(events.filterNot { it is StreamEvent.ToolCallDelta }.single() is StreamEvent.Failure)
         assertFalse(events.any { it is StreamEvent.ToolCallReady || it is StreamEvent.ToolCallBatch })
     }
 
@@ -98,8 +98,8 @@ class OpenAiCompatStreamTest {
             completeCall,
         ))).toList()
 
-        assertEquals(1, events.size)
-        assertTrue(events.single() is StreamEvent.Failure)
+        assertEquals(1, events.count { it !is StreamEvent.ToolCallDelta })
+        assertTrue(events.filterNot { it is StreamEvent.ToolCallDelta }.single() is StreamEvent.Failure)
         assertFalse(events.any { it is StreamEvent.ToolCallReady || it is StreamEvent.ToolCallBatch })
     }
 
@@ -110,8 +110,8 @@ class OpenAiCompatStreamTest {
             """{"choices":[{"delta":{},"finish_reason":"error"}]}""",
         ))).toList()
 
-        assertEquals(1, events.size)
-        assertTrue(events.single() is StreamEvent.Failure)
+        assertEquals(1, events.count { it !is StreamEvent.ToolCallDelta })
+        assertTrue(events.filterNot { it is StreamEvent.ToolCallDelta }.single() is StreamEvent.Failure)
     }
 
     @Test
@@ -194,7 +194,21 @@ class OpenAiCompatStreamTest {
             emitEvent = { error("Visible output must not be duplicated") }, sleep = {},
         )
         assertEquals("JSON error injected into SSE stream", result)
-        assertEquals(listOf(StreamEvent.ThinkingDelta("Let me check.")), events)
+        assertEquals(listOf(StreamEvent.ThinkingDelta("Let me check.")), events.filterNot { it is StreamEvent.ToolCallDelta })
+
+    }
+
+    @Test fun `file arguments reach preview before a completed executable call`() = runBlocking {
+        val events = stream(provider(listOf(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"draft","function":{"name":"write_file","arguments":"{\"path\":\"a.kt\",\"content\":\"one\\n"}}]}}]}""",
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"two\\n\"}"}}]}}]}""",
+            """{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""",
+        ))).toList()
+        val progress = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        assertEquals(2, progress.size)
+        assertEquals("draft", progress.first().id)
+        assertTrue(events.indexOf(progress.last()) < events.indexOfFirst { it is StreamEvent.ToolCallReady })
+        assertEquals("""{"path":"a.kt","content":"one\ntwo\n"}""", events.filterIsInstance<StreamEvent.ToolCallReady>().single().call.argumentsJson)
     }
 
     @Test
@@ -212,6 +226,7 @@ class OpenAiCompatStreamTest {
             partialCall,
             """{"choices":[{"delta":{},"finish_reason":"error","error":{"code":"429","message":"Too many requests"}}]}""",
         ))).toList()
-        assertEquals(listOf(StreamEvent.Failure("Too many requests", 429)), events)
+        assertEquals(listOf(StreamEvent.Failure("Too many requests", 429)), events.filterNot { it is StreamEvent.ToolCallDelta })
+        assertFalse(events.any { it is StreamEvent.ToolCallReady || it is StreamEvent.ToolCallBatch })
     }
 }
