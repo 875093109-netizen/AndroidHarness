@@ -24,6 +24,7 @@ internal enum class SettingsPage(
     TELEGRAM("Telegram", "Continue chats and edit projects from your paired bot", "Connections", "telegram bot remote control pairing notifications gateway"),
     WORKSPACE("Workspaces", "Choose, add and manage your project folders", "Workspace & device", "storage files saf folder project remembered permissions grants revoke always"),
     ENVIRONMENT("Terminal & device", "Linux tools, storage permissions and background access", "Workspace & device", "shizuku shell packages environment battery optimization keep alive"),
+    TROUBLESHOOTING("Troubleshooting", "Check connections, permissions and device tools", "Workspace & device", "diagnostics help doctor repair errors storage linux shizuku ssh mcp notifications provider report"),
     BACKUP("Backups", "Encrypted settings and chat backups", "App & data", "restore history archive transfer password providers keys encryption"),
     USAGE("Usage", "Token usage, costs and activity over time", "App & data", "stats statistics cache tokens"),
     UPDATES("Updates", "Check GitHub Releases for a newer build", "App & data", "version release download"),
@@ -104,6 +105,7 @@ internal fun matchingSettingsPages(query: String): List<SettingsPage> =
     matchingSettingsEntries(query).map { it.page }.distinct()
 
 internal fun settingsDeepLink(target: String): SettingsPage? = when (target) {
+    "troubleshooting" -> SettingsPage.TROUBLESHOOTING
     "github" -> SettingsPage.GITHUB
     "chatgpt" -> SettingsPage.CONNECTED_ACCOUNTS
     "planning" -> SettingsPage.MODELS

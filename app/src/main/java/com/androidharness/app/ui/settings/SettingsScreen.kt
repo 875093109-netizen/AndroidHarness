@@ -284,6 +284,7 @@ fun SettingsScreen(
                             )
                         }
                         SettingsPage.ENVIRONMENT -> TerminalSection(container, envState, shizukuState, serviceState)
+                        SettingsPage.TROUBLESHOOTING -> TroubleshootingSection(container, ::openPage)
                         SettingsPage.BACKUP -> {
                             SettingsBackupSection(container)
                             ChatsBackupSection(container)

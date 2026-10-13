@@ -926,6 +926,19 @@ fun AppNav(container: AppContainer) {
                     sessionId = sessionArg.takeIf { it.isNotBlank() },
                     projectId = entry.arguments?.getString("project")?.takeIf { it.isNotBlank() },
                     onBack = { nav.popBackStack() },
+                    onAskAgent = { sourceId, prompt ->
+                        scope.launch {
+                            try {
+                                val sid = sessionArg.takeIf { it.isNotBlank() }
+                                    ?: sourceId?.let { container.sessions.createProjectSession(it) }
+                                    ?: error("Choose a workspace before asking about code.")
+                                container.pendingCodeDraft.value = com.androidharness.app.ui.files.CodeChatDraft(sid, prompt)
+                                val route = if (draftSessionId == sid) "chat" else "chat/$sid"
+                                if (!nav.popBackStack(route, inclusive = false)) openChat(sid)
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                            catch (e: Exception) { workspaceError = e.message }
+                        }
+                    },
                 )
             }
             composable("automation") {

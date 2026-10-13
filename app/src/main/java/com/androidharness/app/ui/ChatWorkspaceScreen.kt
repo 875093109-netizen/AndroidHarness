@@ -177,7 +177,22 @@ fun ChatWorkspaceScreen(
                     }, panel = {
                         if (desktop || toolsUsed) Box(Modifier.fillMaxSize()) {
                             if (file != null) CodeEditorScreen(container, file!!, initialLine = line.takeIf { it > 0 },
-                                sessionId = chatState.sessionId, onBack = { file = null }, navigationGuard = guard)
+                                sessionId = chatState.sessionId, onBack = { file = null }, navigationGuard = guard,
+                                onAskAgent = { sourceId, prompt ->
+                                    scope.launch {
+                                        try {
+                                            val sid = chatState.sessionId ?: sourceId?.let { container.sessions.createProjectSession(it) }
+                                                ?: error("Workspace unavailable")
+                                            container.pendingCodeDraft.value = com.androidharness.app.ui.files.CodeChatDraft(sid, prompt)
+                                            if (chatState.sessionId == null) onNavigateToSession(sid)
+                                            else { file = null; if (!wide) compactOpen = false }
+                                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                                        catch (_: Exception) {
+                                            android.widget.Toast.makeText(container.appContext,
+                                                "Could not open chat. Choose an available workspace and retry.", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                })
                             else savedTools.SaveableStateProvider(tool) {
                                 when (tool) {
                                     "Terminal" -> TerminalScreen(container, onBack = ::closePanel, sessionId = chatState.sessionId)

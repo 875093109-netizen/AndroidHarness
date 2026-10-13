@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
@@ -90,6 +91,7 @@ private const val MAX_EDIT_BYTES = 16_000_000L
  * cumulative "Files changed" tracker, using the load-time content as the
  * diff baseline candidate (the repository keeps the earliest baseline).
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun CodeEditorScreen(
     container: AppContainer,
@@ -99,6 +101,7 @@ fun CodeEditorScreen(
     onBack: () -> Unit,
     navigationGuard: EditorNavigationGuard? = null,
     projectId: String? = null,
+    onAskAgent: ((String?, String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -151,6 +154,10 @@ fun CodeEditorScreen(
     }
 
     // ---- editor state ----
+    val sourceProject by remember(sessionId, projectId) { container.workspace.projectForTools(sessionId, projectId) }
+        .collectAsStateWithLifecycle(initialValue = null)
+    var selection by remember(path) { mutableStateOf<SelectedCode?>(null) }
+    var selectedLength by remember(path) { mutableIntStateOf(0) }
     var editorRef by remember { mutableStateOf<CodeEditor?>(null) }
     var editing by buffer.editing
     var dirty by buffer.dirty
@@ -379,6 +386,17 @@ fun CodeEditorScreen(
                 )
 
                 Load.Ready -> Column(Modifier.fillMaxSize()) {
+                    if (onAskAgent != null && selectedLength > 0) Surface(color = scheme.secondaryContainer) {
+                        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (selectedLength > SelectedCode.MAX_CHARS) "Select less code to ask the agent" else "Selected code",
+                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                            TextButton(enabled = selectedLength <= SelectedCode.MAX_CHARS, onClick = {
+                                val ed = editorRef ?: return@TextButton
+                                selection = SelectedCode.capture(path, ed.text.toString(), ed.cursor.left, ed.cursor.right, dirty)
+                                ed.hideSoftInput(); ed.hideEditorWindows()
+                            }) { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Ask agent") }
+                        }
+                    }
                     AndroidView(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -411,6 +429,9 @@ fun CodeEditorScreen(
                                     buffer.text.value = text.toString()
                                     dirty = buffer.text.value != lastSavedText.value
                                 }
+                                subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
+                                    selectedLength = cursor.right - cursor.left
+                                }
                                 editorRef = this
                             }
                         },
@@ -442,6 +463,33 @@ fun CodeEditorScreen(
         }
     }
 
+    selection?.let { captured ->
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { selection = null },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Ask about selected code", style = MaterialTheme.typography.titleLarge)
+                Text(captured.location, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = scheme.surfaceContainer) {
+                    Text(captured.text.take(700) + if (captured.text.length > 700) "\n…" else "",
+                        fontFamily = com.androidharness.app.ui.theme.HarnessMono, style = MaterialTheme.typography.bodySmall,
+                        maxLines = 7, modifier = Modifier.padding(12.dp))
+                }
+                Text("Choose an action, then review and send it in chat.", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                CodeAction.entries.forEach { action ->
+                    Surface(onClick = {
+                        selection = null
+                        requestNavigation { onAskAgent?.invoke(sourceProject?.id, captured.prompt(action)) }
+                    }, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = scheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text(action.label, style = MaterialTheme.typography.titleSmall)
+                            Text(action.description, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (gotoOpen) GoToLineDialog(editor = editorRef, onDismiss = { gotoOpen = false })
 
     if (showExitPrompt) {

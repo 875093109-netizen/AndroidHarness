@@ -236,6 +236,15 @@ fun ChatScreen(
     val isAgentControllingBrowser by viewModel.container.browser.isAgentControlling.collectAsStateWithLifecycle(initialValue = false)
     val browserActionTracks by viewModel.container.browser.actionTrack.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    LaunchedEffect(state.sessionId) {
+        val sid = state.sessionId ?: return@LaunchedEffect
+        viewModel.container.pendingCodeDraft.filterNotNull().collect { draft ->
+            if (draft.sessionId == sid && viewModel.container.pendingCodeDraft.compareAndSet(draft, null)) {
+                setComposerText(if (composerValue.text.isBlank()) draft.prompt else "${composerValue.text}\n\n${draft.prompt}")
+            }
+        }
+    }
+
     // Share target: text/link shares prefill the composer, image shares ride
     // the normal attach pipeline. Consumed once, by whichever chat is open.
     LaunchedEffect(Unit) {

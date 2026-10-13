@@ -197,6 +197,8 @@ class ModelLockingDeviceTest {
 
     private suspend fun fixture(block: suspend (MainActivity, ProviderConfig, String, String, MutableList<String>) -> Unit) {
         val saved = c.settings.settings.first()
+        // This suite checks the phone header across rotations, regardless of the user's saved layout.
+        c.settings.setWorkspaceLayout(com.androidharness.app.data.WorkspaceLayoutMode.PHONE)
         val previous = c.workspace.currentProjectOnce()
         val requests = Collections.synchronizedList(mutableListOf<String>())
         val server = FixtureServer(requests)

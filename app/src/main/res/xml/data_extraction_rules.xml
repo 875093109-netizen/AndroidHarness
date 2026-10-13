@@ -12,6 +12,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="api_keys.xml" />
+        <exclude domain="sharedpref" path="model-shortcuts.xml" />
         <exclude domain="file" path="mcp-servers.json" />
         <exclude domain="file" path="mcp-servers.json.hmac" />
         <exclude domain="file" path="linux" />
@@ -21,6 +22,7 @@
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="api_keys.xml" />
+        <exclude domain="sharedpref" path="model-shortcuts.xml" />
         <exclude domain="file" path="mcp-servers.json" />
         <exclude domain="file" path="mcp-servers.json.hmac" />
         <exclude domain="file" path="linux" />

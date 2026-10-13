@@ -215,6 +215,7 @@ private fun settingsIcon(page: SettingsPage): ImageVector = when (page) {
     SettingsPage.TELEGRAM -> Icons.AutoMirrored.Outlined.Send
     SettingsPage.WORKSPACE -> Icons.Outlined.Folder
     SettingsPage.ENVIRONMENT -> Icons.Outlined.Terminal
+    SettingsPage.TROUBLESHOOTING -> Icons.Outlined.Build
     SettingsPage.BACKUP -> Icons.Outlined.Archive
     SettingsPage.USAGE -> Icons.Outlined.BarChart
     SettingsPage.UPDATES -> Icons.Outlined.SystemUpdate

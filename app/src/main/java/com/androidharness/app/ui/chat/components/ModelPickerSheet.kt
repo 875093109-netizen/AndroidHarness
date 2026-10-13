@@ -24,6 +24,12 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.androidharness.app.data.ModelShortcuts
+import com.androidharness.app.data.ModelShortcut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -90,10 +96,21 @@ fun ModelPickerSheet(
     sameModelAcrossChats: Boolean? = null,
     onModelScopeChange: (Boolean) -> Unit = {},
     modelScopeEnabled: Boolean = true,
+    modelShortcuts: ModelShortcuts? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val shortcuts = remember(context, modelShortcuts) { modelShortcuts ?: ModelShortcuts.get(context) }
+    val saved by shortcuts.state.collectAsStateWithLifecycle()
+    var collection by remember { mutableStateOf("All") }
+    fun select(providerId: String, model: String?) {
+        if (!modelScopeEnabled) return
+        val id = model ?: providers.firstOrNull { it.id == providerId }?.model
+        onSelect(providerId, model)
+        if (!id.isNullOrBlank()) shortcuts.selected(ModelShortcut(providerId, id))
+    }
     var thinkOnly by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var refreshError by remember { mutableStateOf<String?>(null) }
@@ -118,15 +135,27 @@ fun ModelPickerSheet(
             finally { isRefreshing = false }
         }
     }
-    val visibleRows = remember(listedProvider, listedCatalog, normalizedQuery, thinkOnly, chatGptPlan) {
+    val availableRows = remember(listedProvider, listedCatalog, chatGptPlan) {
         val provider = listedProvider ?: return@remember emptyList()
-        buildList {
-            if (chatGptPlan) addAll(listedCatalog.sortedWith(newestChatGptFirst)) else {
-                add(ModelEntry(provider.model, reasoning = null, contextTokens = null))
-                addAll(listedCatalog.filter { it.id != provider.model })
-            }
-        }.distinctBy { it.id }
-            .filter { normalizedQuery.isBlank() || (it.id.lowercase().contains(normalizedQuery) || it.displayName?.lowercase()?.contains(normalizedQuery) == true) }
+        if (chatGptPlan) listedCatalog.sortedWith(newestChatGptFirst) else buildList {
+            add(listedCatalog.firstOrNull { it.id == provider.model }
+                ?: ModelEntry(provider.model, reasoning = null, contextTokens = null))
+            addAll(listedCatalog.filter { it.id != provider.model })
+        }.distinctBy { it.id }.filter { it.id.isNotBlank() }
+    }
+    val availableIds = availableRows.map { it.id }.toSet()
+    val favouriteIds = saved.favourites.filter { it.providerId == listedId }.map { it.modelId }
+    val recentIds = saved.recent.filter { it.providerId == listedId }.map { it.modelId }.take(10)
+    val visibleRows = remember(availableRows, favouriteIds, recentIds, collection, normalizedQuery, thinkOnly) {
+        val rows = when (collection) {
+            "Favourites" -> favouriteIds.map { id -> availableRows.firstOrNull { it.id == id }
+                ?: ModelEntry(id, reasoning = null, contextTokens = null) }
+            "Recent" -> recentIds.map { id -> availableRows.firstOrNull { it.id == id }
+                ?: ModelEntry(id, reasoning = null, contextTokens = null) }
+            else -> availableRows.sortedBy { if (it.id in favouriteIds) 0 else 1 }
+        }
+        rows.filter { normalizedQuery.isBlank() || it.id.lowercase().contains(normalizedQuery)
+            || it.displayName?.lowercase()?.contains(normalizedQuery) == true }
             .filter { !thinkOnly || (it.reasoning ?: reasoningCapable(it.id)) }
     }
 
@@ -211,6 +240,15 @@ fun ModelPickerSheet(
                         }
                     }
 
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("All", "Favourites", "Recent").forEach { label ->
+                            FilterChip(selected = collection == label, onClick = { collection = label },
+                                label = { Text(label) })
+                        }
+                    }
+                    if (collection == "Recent" && recentIds.isNotEmpty()) TextButton(
+                        onClick = { listedId?.let(shortcuts::clearRecent) }) { Text("Clear recent") }
+
                     // Thinking tiers live in the header badge, not here: the picker is
                     // about WHICH model runs; the global ladder adapts to it via
                     // ThinkingSpecs.clampStoredLevel on every switch.
@@ -248,7 +286,7 @@ fun ModelPickerSheet(
                         listedProvider?.let { p ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                if (isRefreshing) "reloading…" else if (listedCatalog.isEmpty()) "models" else "${listedCatalog.size} models",
+                                if (isRefreshing) "reloading…" else "${visibleRows.size} ${if (visibleRows.size == 1) "model" else "models"}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -333,7 +371,7 @@ fun ModelPickerSheet(
                     }
                 }
 
-                if (!chatGptPlan && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id) && query.isNotBlank() && visibleRows.none { it.id.equals(query.trim(), ignoreCase = true) }) {
+                if (collection == "All" && !chatGptPlan && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id) && query.isNotBlank() && availableRows.none { it.id.equals(query.trim(), ignoreCase = true) }) {
                     item(key = "inline-custom-${query.trim()}") {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
@@ -345,7 +383,7 @@ fun ModelPickerSheet(
                                 .clickable(enabled = modelScopeEnabled) {
                                     val customName = query.trim()
                                     onAddCustomModel(provider.id, customName, null)
-                                    onSelect(provider.id, customName)
+                                    select(provider.id, customName)
                                     onDismiss()
                                 },
                         ) {
@@ -379,6 +417,15 @@ fun ModelPickerSheet(
                     }
                 }
 
+                if (visibleRows.isEmpty() && !isRefreshing) item(key = "empty-models") {
+                    Text(when {
+                        query.isNotBlank() || thinkOnly -> "No models match these filters."
+                        collection == "Favourites" -> "Tap a star beside a model to keep it here."
+                        collection == "Recent" -> "Models you choose will appear here."
+                        else -> "No models available. Try refreshing."
+                    }, modifier = Modifier.padding(vertical = 20.dp),
+                        style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+                }
                 items(visibleRows.size, key = { "${provider.id}-${visibleRows[it].id}" }) { index ->
                     val entry = visibleRows[index]
                     val isSelected = provider.id == (browseProviderId ?: activeProviderId) &&
@@ -393,10 +440,12 @@ fun ModelPickerSheet(
                             entry.contextTokens
                                 ?: ModelsDev.entry(devKey, entry.id)?.contextTokens,
                         ),
-                        note = entry.note,
-                        enabled = modelScopeEnabled,
+                        note = if (entry.id !in availableIds) "Unavailable · refresh or choose another model" else entry.note,
+                        enabled = modelScopeEnabled && entry.id in availableIds,
+                        favourite = entry.id in favouriteIds,
+                        onFavourite = { shortcuts.toggle(ModelShortcut(provider.id, entry.id)) },
                         onClick = {
-                            onSelect(provider.id, entry.id)
+                            select(provider.id, entry.id)
                             onDismiss()
                         },
                         onDelete = if (entry.custom) {
@@ -406,14 +455,13 @@ fun ModelPickerSheet(
                 }
             }
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (!chatGptPlan) TextButton(onClick = { showAddCustomDialog = true }, enabled = listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) {
                         Text("+ Custom model…")
                     }
-                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = { onDismiss(); onManageProviders() }) {
                         Text("Manage providers…")
                     }
@@ -428,7 +476,7 @@ fun ModelPickerSheet(
             onDismiss = { showAddCustomDialog = false },
             onAdd = { modelId, reasoning ->
                 onAddCustomModel(listedProvider.id, modelId, reasoning)
-                onSelect(listedProvider.id, modelId)
+                select(listedProvider.id, modelId)
                 onDismiss()
             },
         )
@@ -447,11 +495,11 @@ private fun ModelRow(
     onClick: () -> Unit,
     onDelete: (() -> Unit)? = null,
     enabled: Boolean = true,
+    favourite: Boolean = false,
+    onFavourite: () -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
     Surface(
-        onClick = onClick,
-        enabled = enabled,
         color = if (selected) scheme.secondaryContainer else scheme.surface,
         shape = RoundedCornerShape(14.dp),
         border = if (selected) BorderStroke(1.dp, scheme.primary.copy(alpha = 0.28f)) else null,
@@ -461,9 +509,10 @@ private fun ModelRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).clickable(enabled = enabled, onClick = onClick).heightIn(min = 48.dp),
+                verticalArrangement = Arrangement.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         id,
@@ -500,6 +549,11 @@ private fun ModelRow(
                         color = if (thinking) scheme.primary else scheme.onSurfaceVariant,
                     )
                 }
+            }
+            IconButton(onClick = onFavourite) {
+                Icon(if (favourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    contentDescription = if (favourite) "Remove $id from favourites" else "Favourite $id",
+                    tint = if (favourite) scheme.primary else scheme.onSurfaceVariant)
             }
             if (onDelete != null) {
                 IconButton(

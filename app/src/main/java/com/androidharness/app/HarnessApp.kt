@@ -49,6 +49,9 @@ class AppContainer(val appContext: Context) {
     /** Share-target channel: one ACTION_SEND payload awaiting the open chat. */
     val pendingShare = kotlinx.coroutines.flow.MutableStateFlow<com.androidharness.app.data.PendingShare?>(null)
 
+    /** Selected-code prompt waiting for its specific chat composer. */
+    val pendingCodeDraft = kotlinx.coroutines.flow.MutableStateFlow<com.androidharness.app.ui.files.CodeChatDraft?>(null)
+
     /** Build/test failure prompt waiting for a fresh chat to run it. */
     val pendingAgentPrompt = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
