@@ -32,6 +32,6 @@ private object ChatListPrefetchStrategy : LazyListPrefetchStrategy {
 
 /** Only reuse a composition for the same kind of chat row. */
 internal enum class ChatListContentType {
-    Empty, SearchTarget, User, Thinking, AssistantText, Activity,
+    Empty, History, SearchTarget, User, Thinking, AssistantText, Activity,
     Subagents, Subagent, Tools, Tool, System, Approval, Environment, Question, Plan,
 }

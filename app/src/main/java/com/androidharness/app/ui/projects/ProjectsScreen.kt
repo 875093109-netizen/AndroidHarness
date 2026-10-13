@@ -34,6 +34,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun ProjectsScreen(container: AppContainer, onBack: () -> Unit, onOpenProject: (String) -> Unit) {
@@ -93,12 +95,18 @@ fun ProjectScreen(
     onMemory: () -> Unit,
     onAutomation: (String?, Boolean) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFiles: () -> Unit,
+    onOpenTerminal: () -> Unit,
+    onOpenBuildTest: () -> Unit,
+    onSendPrompt: (String) -> Unit,
 ) {
     val projects by container.workspace.projects.collectAsStateWithLifecycle(initialValue = emptyList())
     val sessions by container.sessions.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
     val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
     val tasks by container.automation.repository.tasks.collectAsStateWithLifecycle()
     val running by container.runManager.runningSessionIds.collectAsStateWithLifecycle()
+    val checks by container.projectChecks.results.collectAsStateWithLifecycle()
+    val terminal by container.terminal.state.collectAsStateWithLifecycle()
     val project = projects.firstOrNull { it.id == projectId }
     val chats = remember(sessions, projectId, settings.archivedSessions, settings.pinnedSessions) {
         sessions.filter { it.projectId == projectId && it.id !in settings.archivedSessions }
@@ -110,7 +118,60 @@ fun ProjectScreen(
     var showDetails by rememberSaveable(projectId) { mutableStateOf(false) }
     var repository by remember(projectId) { mutableStateOf<String?>(null) }
     val environment by container.linuxEnv.state.collectAsStateWithLifecycle()
-    LaunchedEffect(project, environment, showRepository) {
+    var refresh by remember(projectId) { mutableIntStateOf(0) }
+    var git by remember(projectId) { mutableStateOf<ProjectGitOverview?>(null) }
+    var staticPreview by remember(projectId) { mutableStateOf<String?>(null) }
+    var backgroundPreview by remember(projectId) { mutableStateOf<String?>(null) }
+    var openPreview by remember(projectId) { mutableStateOf<String?>(null) }
+    val workspace = remember(project) { project?.let { runCatching { container.workspace.fsFor(it) }.getOrNull() } }
+    val launchPrefs = remember { container.appContext.getSharedPreferences("project_launch", android.content.Context.MODE_PRIVATE) }
+    val serverCommand = launchPrefs.getString("command_$projectId", null)
+    val serverRunning = serverCommand != null && terminal.lastCommand == serverCommand && terminal.busy
+    val serverPreview = if (serverRunning && workspace !is com.androidharness.app.workspace.SshFs)
+        com.androidharness.app.core.ProjectLaunch.previewUrl(terminal.lines.joinToString("\n")) else null
+    val preview = serverPreview ?: backgroundPreview ?: staticPreview
+    val projectRunning = sessions.any { it.projectId == projectId && it.id in running }
+    LaunchedEffect(workspace, environment, refresh, projectRunning, showRepository) {
+        val fs = workspace ?: return@LaunchedEffect
+        git = null
+        git = withContext(Dispatchers.IO) { loadProjectGitOverview(container, fs) }
+        staticPreview = withContext(Dispatchers.IO) {
+            listOf("index.html", "public/index.html").firstOrNull { runCatching { fs.resolve(it).isFile }.getOrDefault(false) }
+        }
+    }
+    LaunchedEffect(workspace, refresh) {
+        backgroundPreview = null
+        val root = workspace?.shellRoot ?: return@LaunchedEffect
+        val rootPath = withContext(Dispatchers.IO) { root.canonicalPath }
+        while (isActive) {
+            backgroundPreview = withContext(Dispatchers.IO) {
+                try {
+                    container.backgroundProcesses.list().map { it.first }.filter {
+                        val cwd = java.io.File(it.cwd).canonicalPath
+                        cwd == rootPath || cwd.startsWith("$rootPath/")
+                    }.sortedByDescending { it.startedAt }.firstNotNullOfOrNull { job ->
+                        runCatching {
+                            // Logs can grow for days. Read only the tail while the overview is open.
+                            java.io.RandomAccessFile(java.io.File(job.cwd, job.logPath), "r").use { log ->
+                                val bytes = ByteArray(minOf(log.length(), 8_000L).toInt())
+                                log.seek(log.length() - bytes.size)
+                                log.readFully(bytes)
+                                com.androidharness.app.core.ProjectLaunch.previewUrl(bytes.toString(Charsets.UTF_8))
+                            }
+                        }.getOrNull()
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
+            }
+            delay(5_000)
+        }
+    }
+    openPreview?.let { target ->
+        com.androidharness.app.ui.chat.components.WebPreviewSheet(initialTarget = target, workspace = workspace,
+            browserController = container.browser, onSendPrompt = { openPreview = null; onSendPrompt(it) },
+            onDismiss = { openPreview = null })
+    }
+    LaunchedEffect(project, environment, showRepository, refresh) {
         repository = null
         if (project != null && !showRepository && container.linuxEnv.gitToolsReady) {
             withContext(Dispatchers.IO) {
@@ -127,7 +188,8 @@ fun ProjectScreen(
     val ssh = remember(project) { project?.let { runCatching { container.workspace.fsFor(it) }.getOrNull() as? com.androidharness.app.workspace.SshFs } }
     Scaffold(topBar = {
         Column {
-            AppHeader(project?.name ?: "Project", subtitle = project?.let { container.workspace.describe(it).kindLabel }, onBack = onBack)
+            AppHeader(project?.name ?: "Project", subtitle = project?.let { container.workspace.describe(it).kindLabel }, onBack = onBack,
+                actions = { IconButton(onClick = { refresh++ }) { Icon(Icons.Outlined.Refresh, "Refresh project") } })
             com.androidharness.app.ui.common.SshWorkspaceBar(container, ssh, includeStatusBarPadding = false)
         }
     }) { padding ->
@@ -139,6 +201,37 @@ fun ProjectScreen(
                 item {
                     ProjectRow("Repository", repository ?: "Connect or manage repository", Icons.Outlined.AccountTree,
                         onClick = { showRepository = true })
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(git?.branch?.let { "Branch · $it" } ?: git?.note ?: "Checking repository…",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        git?.changedFiles?.let { count -> Text(if (count == 0) "Working tree clean" else "$count changed ${if (count == 1) "file" else "files"}",
+                            style = MaterialTheme.typography.bodySmall) }
+                        if (git?.branch != null && git?.note != null) Text(git!!.note!!, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onOpenFiles, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Files")
+                        }
+                        OutlinedButton(onClick = onOpenTerminal, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.Terminal, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Terminal")
+                        }
+                    }
+                    val check = checks[projectId]
+                    ProjectRow("Build & Test", check?.let {
+                        val status = when (it.status) {
+                            com.androidharness.app.data.ProjectCheckStatus.RUNNING -> "Running"
+                            com.androidharness.app.data.ProjectCheckStatus.PASSED -> "Passed"
+                            com.androidharness.app.data.ProjectCheckStatus.FAILED -> "Failed"
+                            com.androidharness.app.data.ProjectCheckStatus.INTERRUPTED -> "Interrupted"
+                        }
+                        "Last check · ${it.name} · $status · ${formatRelativeTime(it.updatedAt)}"
+                    } ?: "No checks run yet", Icons.Outlined.Build, onClick = onOpenBuildTest)
+                    ProjectRow("Preview", when {
+                        serverPreview != null || backgroundPreview != null -> "Running · $preview"
+                        serverRunning -> "Server running · Open Build & Test"
+                        staticPreview != null -> "Open $staticPreview"
+                        else -> "Run your project from Build & Test"
+                    }, Icons.Outlined.Language, onClick = { if (preview != null) openPreview = preview else onOpenBuildTest() })
                     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(tab == 0, { tab = 0 }, label = {
                             Text("Chats", style = MaterialTheme.typography.labelLarge, maxLines = 1)

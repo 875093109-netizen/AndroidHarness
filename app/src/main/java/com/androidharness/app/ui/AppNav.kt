@@ -248,9 +248,11 @@ fun AppNav(container: AppContainer) {
     val workspaceSessionId = currentSessionId
         ?: currentEntry?.arguments?.getString("sessionId")
         ?: currentEntry?.arguments?.getString("session")?.takeIf { it.isNotBlank() }
-    val currentWorkspace by remember(workspaceSessionId) { container.workspace.projectForChat(workspaceSessionId) }
+    val workspaceProjectId = currentEntry?.arguments?.getString("projectId")
+        ?: currentEntry?.arguments?.getString("project")?.takeIf { it.isNotBlank() }
+    val currentWorkspace by remember(workspaceSessionId, workspaceProjectId) { container.workspace.projectForTools(workspaceSessionId, workspaceProjectId) }
         .collectAsStateWithLifecycle(initialValue = null)
-    val activeFs by remember(workspaceSessionId) { container.workspace.forChat(workspaceSessionId) }
+    val activeFs by remember(workspaceSessionId, workspaceProjectId) { container.workspace.forTools(workspaceSessionId, workspaceProjectId) }
         .collectAsStateWithLifecycle(initialValue = null)
     var workspaceError by remember { mutableStateOf<String?>(null) }
     var creatingProjectChat by remember { mutableStateOf(false) }
@@ -258,7 +260,8 @@ fun AppNav(container: AppContainer) {
         val sid = workspaceSessionId
         scope.launch {
             try {
-                if (sid == null) container.workspace.setActiveProject(id)
+                if (sid == null && workspaceProjectId != null) nav.navigate("project/${encode(id)}")
+                else if (sid == null) container.workspace.setActiveProject(id)
                 else container.runManager.assignWorkspace(sid, id)
             } catch (e: Exception) { workspaceError = e.message }
         }
@@ -688,7 +691,7 @@ fun AppNav(container: AppContainer) {
                         terminalSelected = currentRoute?.startsWith("terminal") == true,
                         onBuild = {
                             scope.launch { drawerState.close() }
-                            nav.navigate("build-test?session=${encode(workspaceSessionId.orEmpty())}")
+                            nav.navigate("build-test?session=${encode(workspaceSessionId.orEmpty())}&project=${encode(workspaceProjectId.orEmpty())}")
                         },
                         onAutomation = {
                             scope.launch { drawerState.close() }
@@ -696,7 +699,7 @@ fun AppNav(container: AppContainer) {
                         },
                         onTerminal = {
                             scope.launch { drawerState.close() }
-                            nav.navigate("terminal?session=${encode(workspaceSessionId.orEmpty())}")
+                            nav.navigate("terminal?session=${encode(workspaceSessionId.orEmpty())}&project=${encode(workspaceProjectId.orEmpty())}")
                         },
                     )
                     Spacer(Modifier.height(8.dp))
@@ -867,17 +870,22 @@ fun AppNav(container: AppContainer) {
                     onBack = { nav.popBackStack() },
                 )
             }
-            composable("terminal?session={session}", arguments = listOf(navArgument("session") { defaultValue = "" })) { entry ->
-                TerminalScreen(container = container, sessionId = entry.arguments?.getString("session")?.takeIf { it.isNotBlank() }, onBack = { nav.popBackStack() })
+            composable("terminal?session={session}&project={project}", arguments = listOf(
+                navArgument("session") { defaultValue = "" }, navArgument("project") { defaultValue = "" })) { entry ->
+                TerminalScreen(container = container, sessionId = entry.arguments?.getString("session")?.takeIf { it.isNotBlank() },
+                    projectId = entry.arguments?.getString("project")?.takeIf { it.isNotBlank() }, onBack = { nav.popBackStack() })
             }
-            composable("files?session={session}", arguments = listOf(navArgument("session") { defaultValue = "" })) { entry ->
+            composable("files?session={session}&project={project}", arguments = listOf(
+                navArgument("session") { defaultValue = "" }, navArgument("project") { defaultValue = "" })) { entry ->
                 val filesSessionId = entry.arguments?.getString("session")?.takeIf { it.isNotBlank() }
+                val filesProjectId = entry.arguments?.getString("project")?.takeIf { it.isNotBlank() }
                 FilesScreen(
                     container = container,
                     sessionId = filesSessionId,
+                    projectId = filesProjectId,
                     onBack = { nav.popBackStack() },
                     onOpenFile = { path ->
-                        nav.navigate("viewer/${encode(path)}?line=0&session=${encode(filesSessionId.orEmpty())}")
+                        nav.navigate("viewer/${encode(path)}?line=0&session=${encode(filesSessionId.orEmpty())}&project=${encode(filesProjectId.orEmpty())}")
                     },
                     onOpenChanges = filesSessionId?.let { sid ->
                         { nav.navigate("changes/${encode(sid)}") }
@@ -897,7 +905,7 @@ fun AppNav(container: AppContainer) {
                 )
             }
             composable(
-                "viewer/{path}?line={line}&session={session}",
+                "viewer/{path}?line={line}&session={session}&project={project}",
                 arguments = listOf(
                     navArgument("path") { type = NavType.StringType },
                     navArgument("line") { type = NavType.IntType; defaultValue = 0 },
@@ -905,6 +913,7 @@ fun AppNav(container: AppContainer) {
                         type = NavType.StringType
                         defaultValue = ""
                     },
+                    navArgument("project") { type = NavType.StringType; defaultValue = "" },
                 ),
             ) { entry ->
                 val path = entry.arguments?.getString("path").orEmpty()
@@ -915,6 +924,7 @@ fun AppNav(container: AppContainer) {
                     path = path,
                     initialLine = line,
                     sessionId = sessionArg.takeIf { it.isNotBlank() },
+                    projectId = entry.arguments?.getString("project")?.takeIf { it.isNotBlank() },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -929,25 +939,30 @@ fun AppNav(container: AppContainer) {
             }
             composable("project/{projectId}", arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { entry ->
                 val id = requireNotNull(entry.arguments?.getString("projectId"))
+                fun openProjectChat(projectId: String, prompt: String? = null) {
+                    if (creatingProjectChat) return
+                    creatingProjectChat = true
+                    scope.launch {
+                        try {
+                            val sid = container.sessions.createProjectSession(projectId)
+                            if (prompt != null) container.pendingAgentPrompt.value = prompt
+                            nav.navigate("chat/${encode(sid)}")
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { workspaceError = e.message }
+                        finally { creatingProjectChat = false }
+                    }
+                }
                 ProjectScreen(container, id, onBack = { nav.popBackStack() },
                     onOpenChat = { nav.navigate("chat/${encode(it)}") },
-                    onNewChat = { projectId ->
-                        if (!creatingProjectChat) {
-                            creatingProjectChat = true
-                            scope.launch {
-                                try {
-                                    val sid = container.sessions.createProjectSession(projectId)
-                                    nav.navigate("chat/${encode(sid)}")
-                                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                                catch (e: Exception) { workspaceError = e.message }
-                                finally { creatingProjectChat = false }
-                            }
-                        }
-                    }, creatingChat = creatingProjectChat,
+                    onNewChat = { openProjectChat(it) }, creatingChat = creatingProjectChat,
                     onMemory = { nav.navigate("project/${encode(id)}/memory") },
                     onAutomation = { taskId, create ->
                         nav.navigate("project/${encode(id)}/automation?taskId=${encode(taskId.orEmpty())}&create=$create")
-                    }, onOpenSettings = { nav.navigate("settings") })
+                    }, onOpenSettings = { nav.navigate("settings") },
+                    onOpenFiles = { nav.navigate("files?project=${encode(id)}") },
+                    onOpenTerminal = { nav.navigate("terminal?project=${encode(id)}") },
+                    onOpenBuildTest = { nav.navigate("build-test?project=${encode(id)}") },
+                    onSendPrompt = { openProjectChat(id, it) })
             }
             composable("project/{projectId}/memory", arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { entry ->
                 ProjectMemoryScreen(container, requireNotNull(entry.arguments?.getString("projectId")), onBack = { nav.popBackStack() })
@@ -963,20 +978,31 @@ fun AppNav(container: AppContainer) {
                     initialTaskId = entry.arguments?.getString("taskId")?.takeIf { it.isNotBlank() },
                     createOnOpen = entry.arguments?.getBoolean("create") == true)
             }
-            composable("build-test?session={session}", arguments = listOf(navArgument("session") { defaultValue = "" })) { entry ->
+            composable("build-test?session={session}&project={project}", arguments = listOf(
+                navArgument("session") { defaultValue = "" }, navArgument("project") { defaultValue = "" })) { entry ->
                 val buildSessionId = entry.arguments?.getString("session")?.takeIf { it.isNotBlank() }
+                val buildProjectId = entry.arguments?.getString("project")?.takeIf { it.isNotBlank() }
                 BuildTestScreen(
                     container = container,
                     sessionId = buildSessionId,
+                    projectId = buildProjectId,
                     onBack = { nav.popBackStack() },
                     onOpenFile = { path, line ->
-                        nav.navigate("viewer/${encode(path)}?line=$line&session=${encode(buildSessionId.orEmpty())}")
+                        nav.navigate("viewer/${encode(path)}?line=$line&session=${encode(buildSessionId.orEmpty())}&project=${encode(buildProjectId.orEmpty())}")
                     },
-                    onOpenTerminal = { nav.navigate("terminal?session=${encode(workspaceSessionId.orEmpty())}") },
+                    onOpenTerminal = { nav.navigate("terminal?session=${encode(buildSessionId.orEmpty())}&project=${encode(buildProjectId.orEmpty())}") },
                     onFixWithAgent = { prompt ->
-                        container.pendingAgentPrompt.value = prompt
-                        if (buildSessionId != null) nav.navigate("chat/${encode(buildSessionId)}")
-                        else { draftSessionId = null; nav.navigate("chat") }
+                        if (!creatingProjectChat) scope.launch {
+                            creatingProjectChat = true
+                            try {
+                                val sid = buildSessionId ?: buildProjectId?.let { container.sessions.createProjectSession(it) }
+                                container.pendingAgentPrompt.value = prompt
+                                if (sid != null) nav.navigate("chat/${encode(sid)}")
+                                else { draftSessionId = null; nav.navigate("chat") }
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                            catch (e: Exception) { workspaceError = e.message }
+                            finally { creatingProjectChat = false }
+                        }
                     },
                 )
             }

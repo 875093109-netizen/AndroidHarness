@@ -61,8 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
- * First-run setup: storage access is optional because the app workspace needs no grant.
- * Notifications must be completed before starting the harness.
+ * First-run setup requires storage access. Notifications and additional tools are optional.
  */
 @Composable
 fun SetupScreen(
@@ -101,6 +100,7 @@ fun SetupScreen(
     }
 
     fun finish() {
+        if (!storageGranted) return
         scope.launch {
             container.settings.setOnboardingDone(true)
             onFinish()
@@ -111,7 +111,6 @@ fun SetupScreen(
     val shizukuDone = shizukuState == ShizukuState.GRANTED && serviceState ==
         com.androidharness.app.data.env.UserServiceState.BOUND_READY
     val envDone = envState is EnvState.Ready
-    val requiredDone = notifGranted
     val completed = listOf(storageGranted, notifGranted, shizukuDone, envDone, batteryExempt).count { it }
 
     Scaffold(containerColor = scheme.surface) { padding ->
@@ -131,8 +130,7 @@ fun SetupScreen(
                 Spacer(Modifier.size(2.dp))
                 Text("Welcome to AndroidHarness", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "An agent that reads, edits and runs code on this device. " +
-                        "Complete the required setup to begin.",
+                    "Grant storage access to start coding. Notifications and other tools are optional.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant,
                 )
@@ -150,28 +148,28 @@ fun SetupScreen(
                 }
                 Spacer(Modifier.size(2.dp))
 
-                // -- 1. Storage access (optional) --------------------------
+                // -- 1. Storage access (required) --------------------------
                 SetupStep(
                     icon = { Icon(Icons.Outlined.SdStorage, null, Modifier.size(16.dp), scheme.onSurfaceVariant) },
                     title = "Storage access",
                     status = if (storageGranted) "Device storage access granted"
-                             else "Use the app workspace now, or grant access for device folders",
+                             else "Required: allow access to device files and folders",
                     complete = storageGranted,
-                    optional = true,
+                    optional = false,
                 ) {
                     if (!storageGranted) {
                         Button(onClick = storageAccess.request) { Text("Grant") }
                     }
                 }
 
-                // -- 2. Notifications (required) ---------------------------
+                // -- 2. Notifications (optional) ---------------------------
                 SetupStep(
                     icon = { Icon(Icons.Outlined.Notifications, null, Modifier.size(16.dp), scheme.onSurfaceVariant) },
                     title = "Notifications",
                     status = if (notifGranted) "Runs report progress and approvals" 
-                             else "Required: needed for run progress while backgrounded",
+                             else "Progress and approvals outside the app",
                     complete = notifGranted,
-                    optional = false,
+                    optional = true,
                 ) {
                     if (!notifGranted) {
                         Button(onClick = {
@@ -261,13 +259,12 @@ fun SetupScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (!requiredDone) "Allow notifications to begin"
-                    else if (storageGranted) "Ready to begin" else "Ready with the app workspace",
+                    if (storageGranted) "Ready to begin" else "Allow storage access to begin",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (requiredDone) success else scheme.onSurfaceVariant,
+                    color = if (storageGranted) success else scheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
-                Button(onClick = ::finish, enabled = requiredDone) { Text("Start harness") }
+                Button(onClick = ::finish, enabled = storageGranted) { Text("Start harness") }
             }
         }
     }
@@ -275,6 +272,7 @@ fun SetupScreen(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun SetupStep(
     icon: @Composable () -> Unit,
     title: String,
@@ -299,14 +297,17 @@ private fun SetupStep(
             ) { icon() }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.foundation.layout.FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     Text(title, style = MaterialTheme.typography.titleSmallEmphasized)
                     if (optional) {
-                        Spacer(Modifier.width(6.dp))
                         Text(
                             "Optional",
                             style = MaterialTheme.typography.labelSmall,
                             color = scheme.onSurfaceVariant,
+                            maxLines = 1,
                         )
                     }
                 }

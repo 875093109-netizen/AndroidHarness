@@ -98,11 +98,12 @@ fun CodeEditorScreen(
     sessionId: String? = null,
     onBack: () -> Unit,
     navigationGuard: EditorNavigationGuard? = null,
+    projectId: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scheme = MaterialTheme.colorScheme
-    val fs by remember(sessionId) { container.workspace.forChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
+    val fs by remember(sessionId, projectId) { container.workspace.forTools(sessionId, projectId) }.collectAsStateWithLifecycle(initialValue = null)
 
     // ---- load state ----
     var loadState by remember(path) { mutableStateOf<Load>(Load.Loading) }

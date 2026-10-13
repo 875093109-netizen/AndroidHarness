@@ -56,6 +56,9 @@ data class MessageEntity(
     val createdAt: Long,
 )
 
+/** Stable ordering even when several messages share a millisecond. No schema change. */
+data class MessagePosition(val createdAt: Long, val rowId: Long, val turnId: String?)
+
 /**
  * External-content FTS4 index over message text. Room installs content-sync
  * triggers on [MessageEntity] so every insert/delete keeps this current; the
@@ -246,6 +249,24 @@ interface HarnessDao {
     // messages
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC, rowid ASC")
     fun messagesFlow(sessionId: String): Flow<List<MessageEntity>>
+
+    @Query("SELECT createdAt, rowid AS rowId, turnId FROM messages WHERE sessionId = :sessionId ORDER BY createdAt DESC, rowid DESC LIMIT 1 OFFSET :offset")
+    suspend fun recentMessagePosition(sessionId: String, offset: Int): MessagePosition?
+
+    @Query("SELECT createdAt, rowid AS rowId, turnId FROM messages WHERE sessionId = :sessionId AND (createdAt < :at OR (createdAt = :at AND rowid < :rowId)) ORDER BY createdAt DESC, rowid DESC LIMIT 1 OFFSET :offset")
+    suspend fun olderMessagePosition(sessionId: String, at: Long, rowId: Long, offset: Int): MessagePosition?
+
+    @Query("SELECT createdAt, rowid AS rowId, turnId FROM messages WHERE sessionId = :sessionId AND id = :messageId")
+    suspend fun messagePosition(sessionId: String, messageId: String): MessagePosition?
+
+    @Query("SELECT createdAt, rowid AS rowId, turnId FROM messages WHERE sessionId = :sessionId AND turnId = :turnId ORDER BY createdAt ASC, rowid ASC LIMIT 1")
+    suspend fun firstMessageInTurn(sessionId: String, turnId: String): MessagePosition?
+
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND (createdAt > :at OR (createdAt = :at AND rowid >= :rowId)) ORDER BY createdAt ASC, rowid ASC")
+    fun messagesFromPositionFlow(sessionId: String, at: Long, rowId: Long): Flow<List<MessageEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM messages WHERE sessionId = :sessionId AND (createdAt < :at OR (createdAt = :at AND rowid < :rowId)))")
+    fun hasOlderMessagesFlow(sessionId: String, at: Long, rowId: Long): Flow<Boolean>
 
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC, rowid ASC")
     suspend fun messages(sessionId: String): List<MessageEntity>

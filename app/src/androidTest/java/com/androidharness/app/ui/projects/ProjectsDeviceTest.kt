@@ -96,6 +96,28 @@ class ProjectsDeviceTest {
         }
     }
 
+    @Test fun projectOverviewToolsKeepTheSelectedProjectWithoutCreatingChats() = runBlocking {
+        fixture { _, a, b, _, _ ->
+            File(a.uri!!, "alpha-only.txt").writeText("Alpha workspace content")
+            File(b.uri!!, "beta-only.txt").writeText("Beta workspace content")
+            val before = c.sessions.sessions.first().map { it.id }.toSet()
+            awaitText("Alpha project chat"); tap("Open navigation"); tap("Projects"); tap(a.name)
+            awaitText("Build & Test"); awaitText("No checks run yet")
+            screenshot("project-overview")
+            tap("Files"); awaitText("alpha-only.txt")
+            assertNull(find { it.text?.toString() == "beta-only.txt" })
+            tap("alpha-only.txt"); awaitText("Alpha workspace content")
+            shell("input keyevent 4"); awaitText("alpha-only.txt"); tap("Back")
+            awaitText("Build & Test"); tap("Terminal"); awaitText("Terminal")
+            withTimeout(10000) { while (c.terminal.state.value.cwd != a.uri) delay(50) }
+            tap("Back"); awaitText("Build & Test"); tap("Build & Test"); awaitText(a.name)
+            screenshot("project-build-checks")
+            tap("Back"); awaitText("Project memory")
+            assertEquals(b.id, c.workspace.currentProjectOnce().id)
+            assertEquals(before, c.sessions.sessions.first().map { it.id }.toSet())
+        }
+    }
+
     @Test fun memoryConflictClearAndRecreationKeepNotesRecoverable() = runBlocking {
         fixture { activity, a, b, _, _ ->
             val fs = c.workspace.fsFor(a)
@@ -133,7 +155,7 @@ class ProjectsDeviceTest {
                 instrumentation.runOnMainSync { recreated!!.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
                 awaitText("Rotation-safe notes")
                 screenshot("project-memory-landscape")
-                tap("Back"); awaitText("Discard your changes?"); tap("Keep editing")
+                shell("input keyevent 4"); awaitText("Discard your changes?"); tap("Keep editing")
                 awaitText("Rotation-safe notes")
             } finally { recreated?.let { instrumentation.runOnMainSync { it.finish() } } }
         }
@@ -175,7 +197,16 @@ class ProjectsDeviceTest {
     }
     private fun await(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         val deadline = SystemClock.uptimeMillis() + 20000
-        while (SystemClock.uptimeMillis() < deadline) { find(predicate = predicate)?.let { return it }; SystemClock.sleep(100) }
+        while (SystemClock.uptimeMillis() < deadline) {
+            // An existing Shizuku setup may legitimately show its disconnected warning on entry.
+            if (find { it.text?.toString() == "Shizuku is disabled" } != null) {
+                var action = find { it.text?.toString() == "OK" }
+                while (action != null && !action.isClickable) action = action.parent
+                action?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                SystemClock.sleep(100)
+            }
+            find(predicate = predicate)?.let { return it }; SystemClock.sleep(100)
+        }
         error("Missing UI node")
     }
     private fun awaitText(text: String): AccessibilityNodeInfo = try {

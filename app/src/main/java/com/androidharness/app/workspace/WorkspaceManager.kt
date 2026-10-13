@@ -72,6 +72,15 @@ class WorkspaceManager(
     fun forChat(sessionId: String?): Flow<WorkspaceFs?> = projectForChat(sessionId)
         .map { project -> project?.let { runCatching { fsFor(it) }.getOrNull() } }
 
+    /** Project tools must not change the recent workspace or create a chat just to browse files. */
+    fun projectForTools(sessionId: String?, projectId: String?): Flow<ProjectEntity?> =
+        if (sessionId != null || projectId == null) projectForChat(sessionId)
+        else projects.map { list -> list.firstOrNull { it.id == projectId } }
+            .distinctUntilChanged { previous, next -> previous?.copy(lastUsedAt = 0) == next?.copy(lastUsedAt = 0) }
+
+    fun forTools(sessionId: String?, projectId: String?): Flow<WorkspaceFs?> = projectForTools(sessionId, projectId)
+        .map { project -> project?.let { runCatching { fsFor(it) }.getOrNull() } }
+
     suspend fun projectForSession(sessionId: String): ProjectEntity =
         projectForChat(sessionId).first() ?: error("This chat's workspace is unavailable. Choose a workspace for this chat.")
 

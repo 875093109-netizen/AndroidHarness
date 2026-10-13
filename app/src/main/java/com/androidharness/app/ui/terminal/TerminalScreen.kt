@@ -61,9 +61,10 @@ fun TerminalScreen(
     container: AppContainer,
     onBack: () -> Unit,
     sessionId: String? = null,
+    projectId: String? = null,
 ) {
     val terminal = container.terminal
-    val workspace by remember(sessionId) { container.workspace.forChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
+    val workspace by remember(sessionId, projectId) { container.workspace.forTools(sessionId, projectId) }.collectAsStateWithLifecycle(initialValue = null)
     val remote = workspace as? com.androidharness.app.workspace.SshFs
     val state by terminal.state.collectAsStateWithLifecycle()
     val shizukuState by container.shizuku.state.collectAsStateWithLifecycle()

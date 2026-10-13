@@ -8,9 +8,13 @@ import com.androidharness.app.core.ToolCallData
 import com.androidharness.app.data.db.AppDatabase
 import com.androidharness.app.data.db.ChatSearch
 import com.androidharness.app.data.db.MessageEntity
+import com.androidharness.app.data.db.MessagePosition
 import com.androidharness.app.data.db.SessionEntity
 import com.androidharness.app.data.db.UsageEventEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -42,22 +46,47 @@ class SessionRepository(
      * Message rows are insert/delete-only, so decoded [ChatMessage]s are
      * cached by row id. Without this, every insert during a run re-decodes the
      * tool-call JSON of the ENTIRE session (O(n) per commit, O(n²) per run).
-     * Pruned to the observed session's ids on each flow emission.
+     * Bounded across open chats so browsing old history cannot retain it all.
      */
-    private val messageCache = java.util.concurrent.ConcurrentHashMap<String, ChatMessage>()
+    private val messageCache = object : LinkedHashMap<String, ChatMessage>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ChatMessage>?): Boolean = size > 512
+    }
 
     val sessions: Flow<List<SessionEntity>> = db.dao().sessionsFlow()
 
     fun messagesFlow(sessionId: String): Flow<List<ChatMessage>> =
         db.dao().messagesFlow(sessionId).map { list ->
             val decoded = list.map { it.toChatMessageCached() }
-            if (messageCache.size > list.size) {
+            synchronized(messageCache) { if (messageCache.size > list.size) {
                 val liveIds = HashSet<String>(list.size * 2)
                 list.forEach { liveIds += it.id }
                 messageCache.keys.retainAll(liveIds)
-            }
+            } }
             decoded
         }
+
+    data class MessageWindow(val messages: List<ChatMessage>, val hasOlder: Boolean)
+
+    /** UI pages keep their lower boundary while new messages arrive. Model history stays complete. */
+    suspend fun messageWindowStart(sessionId: String, before: MessagePosition? = null): MessagePosition {
+        val dao = db.dao()
+        val candidate = if (before == null) dao.recentMessagePosition(sessionId, 79)
+            else dao.olderMessagePosition(sessionId, before.createdAt, before.rowId, 79)
+        return completeTurnStart(sessionId, candidate)
+    }
+
+    suspend fun messagePosition(sessionId: String, messageId: String): MessagePosition? =
+        db.dao().messagePosition(sessionId, messageId)?.let { completeTurnStart(sessionId, it) }
+
+    private suspend fun completeTurnStart(sessionId: String, position: MessagePosition?): MessagePosition =
+        position?.turnId?.let { db.dao().firstMessageInTurn(sessionId, it) }
+            ?: position ?: MessagePosition(Long.MIN_VALUE, Long.MIN_VALUE, null)
+
+    fun messageWindowFlow(sessionId: String, start: MessagePosition): Flow<MessageWindow> = combine(
+        db.dao().messagesFromPositionFlow(sessionId, start.createdAt, start.rowId),
+        db.dao().hasOlderMessagesFlow(sessionId, start.createdAt, start.rowId),
+    ) { rows, hasOlder -> MessageWindow(rows.map { it.toChatMessageCached() }, hasOlder) }
+        .flowOn(Dispatchers.IO)
 
     /** Full message list (for UI). */
     suspend fun messages(sessionId: String): List<ChatMessage> =
@@ -618,8 +647,9 @@ class SessionRepository(
         db.dao().deleteSession(session)
     }
 
-    private fun MessageEntity.toChatMessageCached(): ChatMessage =
+    private fun MessageEntity.toChatMessageCached(): ChatMessage = synchronized(messageCache) {
         messageCache.getOrPut(id) { toChatMessage() }
+    }
 
     private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(
         role = runCatching { Role.valueOf(role) }.getOrDefault(Role.USER),

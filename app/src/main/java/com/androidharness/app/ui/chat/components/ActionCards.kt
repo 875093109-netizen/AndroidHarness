@@ -187,6 +187,8 @@ internal fun PlanApprovalCard(
     onApprove: () -> Unit,
     onDiscard: () -> Unit,
 ) {
+    var expanded by remember(plan) { mutableStateOf(false) }
+    val longPlan = plan.length > 2_000
     ActionCard(
         title = "Plan ready to run",
         actions = {
@@ -202,14 +204,20 @@ internal fun PlanApprovalCard(
             }
         },
     ) {
-        Text(
-            plan.take(2_000),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .heightIn(max = 300.dp)
-                .verticalScroll(rememberScrollState()),
-        )
+        if (longPlan && !expanded) {
+            Text(plan.take(2_000), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 8, overflow = TextOverflow.Ellipsis)
+        } else {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    com.androidharness.app.ui.chat.MarkdownText(plan)
+                }
+            }
+        }
+        if (longPlan) TextButton(onClick = { expanded = !expanded }) {
+            Text(if (expanded) "Show less" else "Show full plan")
+        }
     }
 }
 

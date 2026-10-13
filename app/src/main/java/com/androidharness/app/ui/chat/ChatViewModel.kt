@@ -22,6 +22,7 @@ import com.androidharness.app.core.Role
 import com.androidharness.app.core.ToolCallData
 import com.androidharness.app.data.AppSettings
 import com.androidharness.app.data.db.SessionEntity
+import com.androidharness.app.data.db.MessagePosition
 import com.androidharness.app.data.db.SnippetEntity
 import com.androidharness.app.llm.ProviderConfig
 import com.androidharness.app.llm.ProviderType
@@ -38,6 +39,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
@@ -80,6 +83,8 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     /** True while messages are being initially loaded from Room for this session. */
     val isLoadingMessages: Boolean = false,
+    val hasOlderMessages: Boolean = false,
+    val isLoadingOlderMessages: Boolean = false,
     val streamingText: String? = null,
     val streamingThinking: String? = null,
     /** Stable id of the streaming message; the committed row reuses it. */
@@ -257,6 +262,8 @@ class ChatViewModel(
 
     private var sessionId: String? = initialSessionId
     private val sessionIdFlow = MutableStateFlow(initialSessionId)
+    private val messageWindowStart = MutableStateFlow<MessagePosition?>(null)
+    private val historyPaging = Mutex()
     val activeWorkspace = sessionIdFlow.flatMapLatest { c.workspace.projectForChat(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val workspaceFs = activeWorkspace.map { project -> project?.let { runCatching { c.workspace.fsFor(it) }.getOrNull() } }
@@ -430,11 +437,22 @@ class ChatViewModel(
             sessionIdFlow.flatMapLatest { sid ->
                 if (sid == null) {
                     _state.update { it.copy(isLoadingMessages = false) }
-                    flowOf(emptyList())
+                    flowOf(com.androidharness.app.data.SessionRepository.MessageWindow(emptyList(), false))
                 } else {
-                    c.sessions.messagesFlow(sid)
+                    flow {
+                        messageWindowStart.value = c.sessions.messageWindowStart(sid)
+                        emitAll(messageWindowStart.filterNotNull().flatMapLatest { start ->
+                            c.sessions.messageWindowFlow(sid, start)
+                        })
+                    }
                 }
-            }.collect { msgs ->
+            }.collect { window ->
+                val msgs = window.messages
+                // Rewinding may remove the entire loaded suffix. Return to the saved history.
+                if (msgs.isEmpty() && window.hasOlder) {
+                    sessionId?.let { messageWindowStart.value = c.sessions.messageWindowStart(it) }
+                    return@collect
+                }
                 val hold = heldStream
                 if (hold != null && msgs.any { it.id == hold.messageId }) {
                     heldStream = null
@@ -442,12 +460,14 @@ class ChatViewModel(
                         it.copy(
                             messages = msgs,
                             isLoadingMessages = false,
+                            hasOlderMessages = window.hasOlder, isLoadingOlderMessages = false,
                             streamingText = null, streamingThinking = null,
                             streamingMessageId = null, streamingCommitted = false,
                         ).withCurrentAction()
                     }
                 } else {
-                    _state.update { it.copy(messages = msgs, isLoadingMessages = false) }
+                    _state.update { it.copy(messages = msgs, isLoadingMessages = false,
+                        hasOlderMessages = window.hasOlder, isLoadingOlderMessages = false) }
                 }
             }
         }
@@ -1465,6 +1485,48 @@ class ChatViewModel(
             }
             com.androidharness.app.core.Diff.unified(before, current, path)
         }
+
+    fun loadOlderMessages() {
+        if (!_state.value.hasOlderMessages || _state.value.isLoadingOlderMessages) return
+        _state.update { it.copy(isLoadingOlderMessages = true) }
+        viewModelScope.launch {
+            historyPaging.withLock {
+                try {
+                    val sid = sessionId ?: return@withLock
+                    val start = messageWindowStart.value ?: return@withLock
+                    messageWindowStart.value = c.sessions.messageWindowStart(sid, before = start)
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { _state.update { it.copy(error = "Could not load older messages: ${e.message}") } }
+                finally { _state.update { it.copy(isLoadingOlderMessages = false) } }
+            }
+        }
+    }
+
+    /** Search can reveal a saved message outside the initial page without altering model context. */
+    suspend fun revealMessage(messageId: String): Boolean = historyPaging.withLock {
+        val sid = sessionId ?: return@withLock false
+        if (_state.value.messages.any { it.id == messageId }) return@withLock true
+        val position = c.sessions.messagePosition(sid, messageId) ?: return@withLock false
+        val start = messageWindowStart.value
+        if (start == null || position.createdAt < start.createdAt ||
+            position.createdAt == start.createdAt && position.rowId < start.rowId) {
+            messageWindowStart.value = position
+        }
+        kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            state.first { it.messages.any { message -> message.id == messageId } }
+        } != null
+    }
+
+    /** Load checkpoint labels only when Undo is opened, including turns outside the UI page. */
+    suspend fun undoTurns(): List<Pair<String, ChatMessage>> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val sid = sessionId ?: return@withContext emptyList()
+        val messages = c.sessions.messages(sid)
+        _state.value.turnsWithCheckpoints.mapNotNull { tid ->
+            val message = messages.lastOrNull { it.turnId == tid && it.role == Role.ASSISTANT && it.toolCallId == null }
+                ?: messages.firstOrNull { it.turnId == tid }
+            message?.let { tid to it }
+        }.sortedByDescending { it.second.createdAt }
+    }
 
     suspend fun rewindPreview(turnId: String): RewindPreview? {
         val sid = sessionId ?: return null

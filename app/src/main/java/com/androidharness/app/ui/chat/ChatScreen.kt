@@ -384,7 +384,7 @@ fun ChatScreen(
     }
     LaunchedEffect(searchMessageId, state.isLoadingMessages) {
         if (searchMessageId == null || state.isLoadingMessages) return@LaunchedEffect
-        if (state.messages.none { it.id == searchMessageId }) {
+        if (!viewModel.revealMessage(searchMessageId)) {
             pinnedToBottom = true
             snackbar.showSnackbar("This message is no longer in the chat.")
             return@LaunchedEffect
@@ -571,18 +571,19 @@ fun ChatScreen(
 
     // Undo file changes: pick a turn to restore the workspace back to.
     if (showUndoDialog) {
-        val turns = remember(state.turnsWithCheckpoints, state.messages) {
-            state.turnsWithCheckpoints.mapNotNull { tid ->
-                val msg = state.messages.lastOrNull { it.turnId == tid && it.role == Role.ASSISTANT }
-                    ?: state.messages.firstOrNull { it.turnId == tid }
-                msg?.let { tid to it }
-            }.sortedByDescending { it.second.createdAt }
+        var loadingTurns by remember { mutableStateOf(true) }
+        val turns by produceState<List<Pair<String, ChatMessage>>>(emptyList(), state.turnsWithCheckpoints) {
+            loadingTurns = true
+            try { value = viewModel.undoTurns() }
+            finally { loadingTurns = false }
         }
         AlertDialog(
             onDismissRequest = { showUndoDialog = false },
             title = { Text("Undo file changes") },
             text = {
-                if (turns.isEmpty()) {
+                if (loadingTurns) {
+                    Text("Loading checkpoints…")
+                } else if (turns.isEmpty()) {
                     Text("No file changes to undo.")
                 } else {
                     Column(
@@ -1040,7 +1041,7 @@ fun ChatScreen(
                 var unreadWhileAway by remember { mutableStateOf(false) }
                 LaunchedEffect(pinnedToBottom) { if (pinnedToBottom) unreadWhileAway = false }
                 LaunchedEffect(
-                    state.messages.size,
+                    state.messages.lastOrNull()?.id,
                     state.streamingText?.length,
                     state.streamingThinking?.length,
                 ) {
@@ -1074,6 +1075,16 @@ fun ChatScreen(
                                 if (key == "search-target") searchItemIndex.value = nextItemIndex
                                 nextItemIndex++
                                 item(key = key, contentType = contentType, content = content)
+                            }
+                            if (state.hasOlderMessages) {
+                                indexedItem(key = "older-messages", contentType = ChatListContentType.History) {
+                                    TextButton(onClick = {
+                                        pinnedToBottom = false
+                                        viewModel.loadOlderMessages()
+                                    }, enabled = !state.isLoadingOlderMessages, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (state.isLoadingOlderMessages) "Loading older messages…" else "Load older messages")
+                                    }
+                                }
                             }
                             if (state.messages.isEmpty() && state.streamingText == null) {
                                 indexedItem(key = "empty-state", contentType = ChatListContentType.Empty) {

@@ -113,13 +113,14 @@ fun FilesScreen(
     onBack: () -> Unit,
     onOpenFile: (String) -> Unit,
     onOpenChanges: (() -> Unit)? = null,
+    projectId: String? = null,
 ) {
     com.androidharness.app.ui.common.ShizukuWorkspaceWarningEffect(container.shizuku)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scheme = MaterialTheme.colorScheme
     val statusSuccess = LocalStatusColors.current.success
-    val fs by remember(sessionId) { container.workspace.forChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
+    val fs by remember(sessionId, projectId) { container.workspace.forTools(sessionId, projectId) }.collectAsStateWithLifecycle(initialValue = null)
 
     var currentPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(".") }
     var refreshTick by remember { mutableIntStateOf(0) }
@@ -159,7 +160,7 @@ fun FilesScreen(
     val activeChanges = mergedChanges.filter { !it.isDeleted }
 
     // ---- workspace switcher (same sheet the drawer and chat overflow use) ----
-    val currentWorkspace by remember(sessionId) { container.workspace.projectForChat(sessionId) }
+    val currentWorkspace by remember(sessionId, projectId) { container.workspace.projectForTools(sessionId, projectId) }
         .collectAsStateWithLifecycle(initialValue = null)
     val allWorkspaces by container.workspace.projects
         .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -269,7 +270,7 @@ fun FilesScreen(
                             Text(if (visibleEntries.isNotEmpty() && visibleEntries.all { it.relPath in selectedPaths }) "Deselect all" else "Select all")
                         }
                     } else {
-                        IconButton(onClick = { showWorkspaceSheet = true }) {
+                        if (projectId == null || sessionId != null) IconButton(onClick = { showWorkspaceSheet = true }) {
                             Icon(
                                 Icons.Outlined.Folder,
                                 contentDescription = "Switch workspace",

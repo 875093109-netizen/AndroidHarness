@@ -134,11 +134,12 @@ fun BuildTestScreen(
     onOpenTerminal: () -> Unit,
     onFixWithAgent: (String) -> Unit,
     sessionId: String? = null,
+    projectId: String? = null,
 ) {
     val terminal = container.terminal
     val terminalState by terminal.state.collectAsStateWithLifecycle()
-    val workspace by remember(sessionId) { container.workspace.forChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
-    val project by remember(sessionId) { container.workspace.projectForChat(sessionId) }.collectAsStateWithLifecycle(initialValue = null)
+    val workspace by remember(sessionId, projectId) { container.workspace.forTools(sessionId, projectId) }.collectAsStateWithLifecycle(initialValue = null)
+    val project by remember(sessionId, projectId) { container.workspace.projectForTools(sessionId, projectId) }.collectAsStateWithLifecycle(initialValue = null)
     val scheme = MaterialTheme.colorScheme
     val statusColors = LocalStatusColors.current
     val store = remember { BuildCommandStore(container.appContext) }
@@ -243,7 +244,9 @@ fun BuildTestScreen(
         activeCommand = command
         startedAt = SystemClock.elapsedRealtime()
         elapsedMs = 0L
-        terminal.send("cd ${shellQuote(root.absolutePath)} && ${command.command}", workspace)
+        val shellCommand = "cd ${shellQuote(root.absolutePath)} && ${command.command}"
+        terminal.send(shellCommand, workspace)
+        workspaceId?.let { container.projectChecks.track(it, command.name, shellCommand) }
     }
 
     Scaffold(
