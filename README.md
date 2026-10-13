@@ -46,6 +46,7 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 - File diff sheets open right from tool call cards, so you can inspect a change without leaving the conversation.
 - Turn metrics: response duration, token generation throughput measured over the streaming window itself, first-token latency, and token counts in turn stats.
 - Consecutive tool calls roll up into one compact activity card that expands in place with per-call status indicators.
+- Live code cards show the file and language, a syntax-colored draft, animated added/removed line counts, and estimated tool tokens while file-writing arguments stream. Successful writes use measured change counts; provider-reported response tokens are shown separately. Toggle them in Settings → Chat & commands → Show live code. Providers that return complete arguments at once show the card when those arguments arrive.
 - Verification cards: turns that touch files or run checks end with a list of every build, test, or lint command and its recorded outcome (passed, failed, or unconfirmed). Checks invalidated by a later edit are marked for a recheck.
 - Voice input with live waveforms, transcribed by Groq Whisper (`whisper-large-v3` / `turbo`) or native Android speech. Tap the mic to lock recording, or hold with slide-up lock and slide-left cancel.
 - Fork any assistant turn into a fresh session with cloned context.
