@@ -50,8 +50,9 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 - Voice input with live waveforms, transcribed by Groq Whisper (`whisper-large-v3` / `turbo`) or native Android speech. Tap the mic to lock recording, or hold with slide-up lock and slide-left cancel.
 - Fork any assistant turn into a fresh session with cloned context.
 - The last active chat resumes automatically on launch behind shimmering skeleton loading.
+- Long chats open with the most recent messages. Load older messages when needed; pages keep complete turns together, search still jumps to older results, and paging does not change the context used by the model.
 - Each chat keeps its assigned workspace. Choose it from Files or the sidebar; other chats and their running tasks stay in their own projects.
-- **Projects.** The sidebar's Projects screen lists every workspace with its chat count, and each project opens a screen that gathers its chats, its automations, its repository and its memory in one place, with a details dialog for renaming. Adding a workspace there never takes over the workspace your open chat is using, and a chat started from a project belongs to it.
+- **Projects.** Each project brings together chats, automations, repository, memory, Git branch and pending changes, the last named Build & Test check, and a running or static preview. Files, Terminal and Build & Test open directly in that project without changing another chat's workspace or creating a chat. Project details lets you rename it, and new chats belong to the project they were started from.
 - **Project memory.** Chats in a project share one notes file, edited from the project screen and counted against the same limit the agent uses. Saving compares against the version you loaded, so a draft written while the agent was updating the notes is refused with a reload prompt instead of overwriting newer work, and saving waits while a task is running in that workspace.
 - Message queue for follow-ups, with edit, reorder, remove, and Send now. The queue persists across app restarts, each message starts after that chat's successful Run finished notification, and interruptions keep it waiting.
 - Long-press your own message for Retry, Copy, and Edit. Retry resends it as a fresh turn.
@@ -123,6 +124,7 @@ A shell policy and a secret redactor keep the agent from escaping the workspace,
 
 ### Reliability
 
+- Setup requires storage access before starting. Notifications are optional; you can continue using progress and approvals inside the app without granting notification permission.
 - A foreground service keeps the agent and terminals alive while the screen is off.
 - The privileged shell verifies its connection. A Shizuku runner that cannot bind shows a clear failed state with a Retry action instead of sitting on "Connecting", late callbacks from an old attempt cannot replace the live connection, and shell-privileged mode is available only while the runner is actually connected.
 - Interrupted tasks come back as a Resume card. Tool results are saved before the next action, completed writes are not replayed on recovery, and uncertain operations ask you to inspect the current state.
@@ -142,7 +144,7 @@ A shell policy and a secret redactor keep the agent from escaping the workspace,
 - Custom cloud model IDs typed directly into the model picker sheet.
 - Live model catalog fetch with latency check, per-model price tracking, and a running cost readout, plus a total estimated cost hero on the Stats screen. Stats windows (Today, 1 week, 1 month, Lifetime) count requests by the day they were made on your local calendar, so continuing an old chat never moves earlier work into today.
 - One global thinking ladder from Off to Ultra on every model. Non-native rungs resolve down the chain at request time, never rewriting your pick.
-- Per-chat dual planning: a chat menu toggle that runs Plan mode on one model and execution on another, each picked from the same model sheet, with a toast confirming which model fired and a plan card that survives app restarts.
+- Per-chat dual planning: a chat menu toggle that runs Plan mode on one model and execution on another, each picked from the same model sheet, with a toast confirming which model fired and a plan card that survives app restarts. Long plans expand into a complete, formatted, selectable view before approval.
 - Per-chat models: one choice for every chat is the default, as before. Turn off Use the same model in every chat in the picker and each chat remembers its own provider and model for the active, planning and execution roles plus its own thinking level, labelled This chat in the header. Model IDs are saved with the chat, so editing a provider's default later cannot change an older chat, and a chat whose provider or model is gone asks you to pick again instead of sending the request somewhere else.
 
 ### Local models (offline AI)
