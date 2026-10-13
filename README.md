@@ -4,7 +4,7 @@
 <a href="https://buymeacoffee.com/sanuj7"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="72"></a>
 
 [![Debug build](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml/badge.svg)](https://github.com/Sanuu7/AndroidHarness/actions/workflows/nightly.yml)
-[![Version](https://img.shields.io/badge/version-2.0-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
+[![Version](https://img.shields.io/badge/version-2.1-blue)](https://github.com/Sanuu7/AndroidHarness/releases/latest)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3ddc84)](https://developer.android.com/about/versions/oreo)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -58,7 +58,7 @@ Open a workspace, point the agent at a project, and ask for a change. `/doctor` 
 - The agent can ask you something mid-run, and you can answer from the notification shade or the chat.
 - Optional Caveman reply modes: terse, compressed responses with an intensity dial and optional skill enforcement, configured in their own settings screen.
 - Chat backup: export every chat with its full message history to a JSON file and import it back on any device. The file holds chats and messages only, never API keys or settings.
-- Encrypted settings backup: API provider setup, custom API model IDs, and preferences in one encrypted file, with API keys and MCP configuration included optionally. Local models and their selections are excluded.
+- Encrypted settings backup: API provider setup, custom API model IDs, and preferences in one encrypted file, with API keys and MCP configuration included optionally. Local models and their selections are excluded. A failed export names the setting that blocks it instead of a generic error, provider endpoints that work in chat validate here too, and the password can be as short as 6 characters.
 - Workspace layout in Settings → Appearance: Auto, Phone, or Desktop. Wide windows use a desktop workspace with a persistent project/chat sidebar, a focused conversation, resizable file and change panels, and a right-side terminal panel. Narrow windows keep a compact layout.
 - Desktop controls: right-click, long-press, or use a chat's menu to manage it. Tab/Shift+Tab moves focus; Ctrl+L focuses the composer, Ctrl+Enter sends, Ctrl+N starts a chat, Ctrl+Shift+B toggles the sidebar, and Ctrl+Alt+F/T/G opens Files/Terminal/GitHub. Ctrl+S saves in the editor. Enter runs a terminal command; Up/Down recalls commands.
 
@@ -124,6 +124,7 @@ A shell policy and a secret redactor keep the agent from escaping the workspace,
 ### Reliability
 
 - A foreground service keeps the agent and terminals alive while the screen is off.
+- The privileged shell verifies its connection. A Shizuku runner that cannot bind shows a clear failed state with a Retry action instead of sitting on "Connecting", late callbacks from an old attempt cannot replace the live connection, and shell-privileged mode is available only while the runner is actually connected.
 - Interrupted tasks come back as a Resume card. Tool results are saved before the next action, completed writes are not replayed on recovery, and uncertain operations ask you to inspect the current state.
 - Optional Auto-continue (Context & limits → Recovery) resumes after server or connection interruptions with the same Resume task prompt. It is off by default, with a per-task retry limit of 1 to 5 (default 3). User stops, task limits, and permanent errors still require manual attention.
 - Context & limits lets you edit the saved summary, pin instructions, and remove older model context while retaining the visible chat.

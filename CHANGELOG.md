@@ -1,10 +1,15 @@
 # Changelog
 
-## Unreleased
+## 2.1 (2026-10-13)
 
 ### Added
 
-- **Telegram remote control**: replaces the setup preview with ongoing conversations in real project chats, the app's model selection and editing tools, Telegram approval/question buttons, project/chat/model menus and simple controls. Pair through a prepared bot link with a ten-minute code and phone confirmation. A foreground notification keeps reception active while minimized and offers Pause and Stop. Incoming requests, progress, completed replies and explicit retry/resume/resend controls survive connection failures without silently repeating interrupted tools.
+- **Telegram remote control**: replaces the setup preview with ongoing conversations in real project chats, the app's model selection and editing tools, Telegram approval/question buttons, project/chat/model menus and simple controls. Pair through a prepared bot link with a ten-minute code and phone confirmation, and only the confirmed private account can send requests or press its buttons. A foreground notification keeps reception active while minimized and offers Pause and Stop. Incoming requests, progress, completed replies and explicit retry/resume/resend controls survive connection failures without silently repeating interrupted tools, and a delayed approval button can only resolve the exact tool call it was shown for. Settings → Telegram now keeps everything behind one status row with an overflow menu, groups the bot, account, workspace, model and permission controls on one screen, lists failed or uncertain replies under Saved work with Resend reply, and includes a Help & commands sheet.
+
+### Fixed
+
+- **Provider URLs that work in chat now export in settings backups**: the export validator used a parser that rejected valid HTTP endpoints with underscores in the hostname (typical local server addresses such as `http://my_server:11434/v1`), uppercase schemes, non-ASCII hostnames, and IPv6 loopback, so those setups still failed with "Export failed" after the 2.0 fix (issue #30). Validation now uses the same URL parser as API requests. A failed export also names the setting that blocks it (run limits, voice, MCP, provider URL, and so on) instead of a generic sentence, a failure to read saved credentials gets its own message, and none of these messages print URLs or secrets. The backup password minimum drops from 12 characters to 6, with show/hide toggles on both fields.
+- **The privileged shell connects and reports honestly**: a Shizuku bind that never completed used to sit on "Connecting" forever, and privileged mode could turn on with only a permission grant. The runner now owns one attempt at a time with a timeout, shows "Connection failed" with a Retry action when it cannot connect, ignores late callbacks from an expired attempt, and only enables shell-privileged mode once the runner is actually connected. The Shizuku card and the terminal switch follow the same state.
 
 ## 2.0 (2026-10-12)
 
