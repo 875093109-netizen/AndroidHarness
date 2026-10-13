@@ -345,6 +345,7 @@ object CodeTokenizer {
                 }
                 c.isLetter() || c == '-' || c == '.' -> {
                     val start = i
+                    i++ // Consume the selector prefix too; '.' is not accepted by the word loop.
                     while (i < n && (line[i].isLetterOrDigit() || line[i] == '-' || line[i] == '_')) i++
                     var look = i
                     while (look < n && line[look].isWhitespace()) look++

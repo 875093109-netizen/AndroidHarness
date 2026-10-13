@@ -43,13 +43,13 @@ class SessionRepository(
     private val imageList = ListSerializer(ImageRef.serializer())
 
     /**
-     * Message rows are insert/delete-only, so decoded [ChatMessage]s are
-     * cached by row id. Without this, every insert during a run re-decodes the
+     * Decoded [ChatMessage]s are cached by row id and tool JSON, so adding measured
+     * file counts invalidates only the affected row. Without this, each insert re-decodes the
      * tool-call JSON of the ENTIRE session (O(n) per commit, O(n²) per run).
      * Bounded across open chats so browsing old history cannot retain it all.
      */
-    private val messageCache = object : LinkedHashMap<String, ChatMessage>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ChatMessage>?): Boolean = size > 512
+    private val messageCache = object : LinkedHashMap<String, Pair<String, ChatMessage>>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<String, ChatMessage>>?): Boolean = size > 512
     }
 
     val sessions: Flow<List<SessionEntity>> = db.dao().sessionsFlow()
@@ -471,6 +471,22 @@ class SessionRepository(
     fun usageByModelFor(sessionId: String): Flow<List<com.androidharness.app.data.db.ModelUsagePojo>> =
         db.dao().usageByModelForSession(sessionId)
 
+    /** Attach measured counts to their tool call so completed activity survives reopening. */
+    suspend fun recordToolCodeChange(sessionId: String, turnId: String, callId: String,
+        path: String, added: Long, removed: Long) = db.withTransaction {
+        for (row in db.dao().toolMessagesForTurn(sessionId, turnId)) {
+            val calls = runCatching { json.decodeFromString(toolCallList, row.toolCallsJson) }.getOrNull() ?: continue
+            if (calls.none { it.id == callId }) continue
+            val change = com.androidharness.app.core.ToolCodeChange(path,
+                added.coerceIn(0, Int.MAX_VALUE.toLong()).toInt(), removed.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+            val updated = calls.map { call -> if (call.id != callId) call else call.copy(
+                codeChanges = call.codeChanges.filterNot { it.path == path } + change) }
+            val encoded = json.encodeToString(toolCallList, updated)
+            if (encoded.length <= MAX_PERSISTED_FIELD_CHARS) db.dao().updateToolCalls(row.id, encoded)
+            break
+        }
+    }
+
     /** Per-file line-change stat from one editing tool call (chat "+N −M" chips). */
     suspend fun recordFileEdit(
         sessionId: String,
@@ -648,7 +664,8 @@ class SessionRepository(
     }
 
     private fun MessageEntity.toChatMessageCached(): ChatMessage = synchronized(messageCache) {
-        messageCache.getOrPut(id) { toChatMessage() }
+        messageCache[id]?.takeIf { it.first == toolCallsJson }?.second
+            ?: toChatMessage().also { messageCache[id] = toolCallsJson to it }
     }
 
     private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(

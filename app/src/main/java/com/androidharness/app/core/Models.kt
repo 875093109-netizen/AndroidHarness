@@ -12,7 +12,12 @@ data class ToolCallData(
     /** Opaque Responses reasoning carried with the first tool call for stateless replay. */
     val responseReasoning: List<kotlinx.serialization.json.JsonObject> = emptyList(),
     val responseProviderId: String? = null,
+    /** Measured file changes for the activity row; never sent as tool arguments. */
+    val codeChanges: List<ToolCodeChange> = emptyList(),
 )
+
+@Serializable
+data class ToolCodeChange(val path: String, val added: Int, val removed: Int)
 
 /** A user-attached image; bytes live in the ImageStore, keyed by [name]. */
 @Serializable

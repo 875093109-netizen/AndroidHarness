@@ -679,6 +679,8 @@ class RunManager(
                         else file.copy(added = event.added.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), removed = event.removed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
                     })
                 }) }
+                event.callId?.let { callId -> sessions.recordToolCodeChange(
+                    sessionId, event.turnId, callId, event.relPath, event.added, event.removed) }
                 repoMap?.invalidate(event.relPath)
                 sessions.recordFileEdit(
                     sessionId, event.turnId, event.relPath, event.added, event.removed,

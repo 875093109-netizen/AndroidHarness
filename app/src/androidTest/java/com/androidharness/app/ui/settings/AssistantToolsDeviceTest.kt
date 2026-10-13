@@ -117,12 +117,14 @@ class AssistantToolsDeviceTest {
                 val density = androidx.compose.ui.platform.LocalDensity.current
                 androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides
                     androidx.compose.ui.unit.Density(density.density, 1.4f)) {
-                    Column(Modifier.width(320.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(8.dp)) {
+                    Column(Modifier.width(320.dp).fillMaxHeight().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(8.dp)) {
                         com.androidharness.app.ui.chat.components.LiveCodeCard(draft.value)
                     }
                 }
             } } }
-            awaitLiveText("Live code"); awaitLiveText("MainActivity.kt"); awaitLiveText("Kotlin")
+            awaitLiveText("Editing"); awaitLiveText("MainActivity.kt")
+            assertNull(find { it.text?.toString()?.contains("tool tokens") == true })
+            assertNull(find { it.text?.toString()?.contains("val line1") == true })
             for (count in 1..5) {
                 scenario.onActivity { draft.value = draft.value.copy(files = listOf(draft.value.files.single().copy(
                     added = count, lines = (1..count).map { com.androidharness.app.agent.LiveCodeLine('+', "val line$it = $it") }))) }
@@ -130,18 +132,88 @@ class AssistantToolsDeviceTest {
                 SystemClock.sleep(180)
             }
             scenario.onActivity { draft.value = draft.value.copy(files = listOf(draft.value.files.single().copy(removed = 4))) }
-            awaitLiveText("4 lines removed"); awaitLiveText("≈ 40 tool tokens · estimated")
+            awaitLiveText("4 lines removed")
             SystemClock.sleep(220)
+            screenshot("live-code-inline-collapsed")
+            var toggle = awaitLiveText("Expand code preview")
+            while (!toggle.isClickable && toggle.parent != null) toggle = toggle.parent
+            assertTrue(toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            awaitLiveText("Kotlin"); awaitLiveText("val line5"); awaitLiveText("≈ 40 tool tokens · estimated")
             screenshot("live-code-narrow-large-text")
-            var toggle = awaitLiveText("Collapse code preview")
+            toggle = awaitLiveText("Collapse code preview")
             while (!toggle.isClickable && toggle.parent != null) toggle = toggle.parent
             assertTrue(toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             awaitLiveText("MainActivity.kt"); awaitLiveText("5 lines added")
+            awaitCondition { find { it.text?.toString()?.contains("tool tokens") == true } == null }
             scenario.onActivity { draft.value = draft.value.copy(stage = com.androidharness.app.agent.CodeDraftStage.SAVED, responseOutputTokens = 123) }
-            awaitLiveText("Saved"); awaitLiveText("Response: 123 output tokens")
+            awaitLiveText("Edit")
+            assertNull(find { it.text?.toString()?.contains("Response:") == true })
             SystemClock.sleep(220)
             screenshot("live-code-saved-collapsed")
+            toggle = awaitLiveText("Expand code preview")
+            while (!toggle.isClickable && toggle.parent != null) toggle = toggle.parent
+            assertTrue(toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            awaitLiveText("Response: 123 output tokens")
         }
+    }
+
+    @Test fun inlineCodeRowsKeepFilesVisibleAndExpandIndependently() {
+        fun awaitFile(name: String) = await { it.text?.toString()?.startsWith(name) == true }
+        val draft = com.androidharness.app.agent.LiveCodeDraft("inline-patch", "apply_patch", listOf(
+            com.androidharness.app.agent.LiveCodeFile("android-landing/index.html", 238, 0,
+                listOf(com.androidharness.app.agent.LiveCodeLine('+', "<main>Android</main>"))),
+            com.androidharness.app.agent.LiveCodeFile("android-landing/styles.css", 344, 0,
+                listOf(com.androidharness.app.agent.LiveCodeLine('+', ".hero { color: green; }"))),
+            com.androidharness.app.agent.LiveCodeFile("android-landing/script.js", 5, 4,
+                listOf(com.androidharness.app.agent.LiveCodeLine('+', "const android = true;")))), 800)
+        ActivityScenario.launch(ChatListTestActivity::class.java).use { scenario ->
+            scenario.onActivity { host -> host.setContent { HarnessTheme {
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                    com.androidharness.app.ui.chat.components.LiveCodeCard(draft)
+                }
+            } } }
+            awaitFile("index.html"); awaitFile("styles.css"); awaitFile("script.js")
+            assertNull(find { it.text?.toString()?.contains("const android") == true })
+            assertNull(find { it.text?.toString()?.contains("tool tokens") == true })
+            screenshot("live-code-three-inline-rows")
+            var row = awaitFile("styles.css")
+            while (!row.isClickable && row.parent != null) row = row.parent
+            assertTrue(row.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            awaitText(".hero { color: green; }")
+            assertNull(find { it.text?.toString()?.contains("const android") == true })
+            assertNull(find { it.text?.toString()?.contains("<main>") == true })
+            awaitFile("index.html"); awaitFile("script.js")
+            screenshot("live-code-one-row-expanded")
+        }
+    }
+
+    @Test fun measuredCodeCountsSurviveReloadAndInvalidateOnlyTheirCachedCall() = runBlocking {
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(instrumentation.targetContext,
+            com.androidharness.app.data.db.AppDatabase::class.java).build()
+        try {
+            val repo = com.androidharness.app.data.SessionRepository(db)
+            val sid = repo.createSession("Saved code counts")
+            val other = repo.createSession("Other session")
+            val calls = listOf(com.androidharness.app.core.ToolCallData("write", "write_file",
+                """{"path":"a.kt","content":"one\ntwo\nthree\n"}"""),
+                com.androidharness.app.core.ToolCallData("edit", "apply_patch", "{}"))
+            repo.addMessage(sid, com.androidharness.app.core.ChatMessage(com.androidharness.app.core.Role.ASSISTANT,
+                toolCalls = calls), "turn")
+            repo.addMessage(other, com.androidharness.app.core.ChatMessage(com.androidharness.app.core.Role.ASSISTANT,
+                toolCalls = calls), "turn")
+            assertTrue(repo.messagesFlow(sid).first().single().toolCalls.first().codeChanges.isEmpty())
+            repo.recordToolCodeChange(sid, "turn", "write", "a.kt", 1, 4)
+            repo.recordToolCodeChange(sid, "turn", "edit", "b.py", 2, 1)
+            repo.recordToolCodeChange(sid, "turn", "edit", "c.js", 3, 0)
+            repo.recordToolCodeChange(sid, "turn", "edit", "b.py", 5, 2)
+            val cached = repo.messagesFlow(sid).first().single().toolCalls
+            val reopened = com.androidharness.app.data.SessionRepository(db).messagesFlow(sid).first().single().toolCalls
+            assertEquals(cached, reopened)
+            assertEquals(listOf(com.androidharness.app.core.ToolCodeChange("a.kt", 1, 4)), reopened.first().codeChanges)
+            assertEquals(listOf(com.androidharness.app.core.ToolCodeChange("c.js", 3, 0),
+                com.androidharness.app.core.ToolCodeChange("b.py", 5, 2)), reopened.last().codeChanges)
+            assertTrue(repo.messagesFlow(other).first().single().toolCalls.all { it.codeChanges.isEmpty() })
+        } finally { db.close() }
     }
 
     @Test fun favouritesAndRecentPersistWithoutChangingModelOnStar() {

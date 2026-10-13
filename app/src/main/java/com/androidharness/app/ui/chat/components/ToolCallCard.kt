@@ -84,7 +84,22 @@ internal fun ToolCallCard(
     result: ChatMessage?,
     running: Boolean,
     onOpenFile: (String, Int?) -> Unit,
+    showLiveCode: Boolean = true,
+    codeDraft: com.androidharness.app.agent.LiveCodeDraft? = null,
+    awaitingApproval: Boolean = false,
 ) {
+    if (showLiveCode && call.name in com.androidharness.app.agent.LiveCodePreview.tools) {
+        if (codeDraft != null) LiveCodeCard(codeDraft, awaitingApproval, onOpenFile)
+        else {
+            val savedPreview by produceState<com.androidharness.app.agent.LiveCodeDraft?>(null, call, result, running) {
+                value = withContext(Dispatchers.Default) {
+                    com.androidharness.app.agent.LiveCodePreview.fromCall(call, result, running)
+                }
+            }
+            savedPreview?.let { LiveCodeCard(it, awaitingApproval, onOpenFile) }
+        }
+        return
+    }
     var expanded by rememberSaveable(call.id) { mutableStateOf(false) }
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -255,6 +270,7 @@ internal fun ToolGroupCard(
     runningIds: Set<String>,
     onOpenFile: (String, Int?) -> Unit,
     subagentSteps: Map<String, List<String>> = emptyMap(),
+    showLiveCode: Boolean = true,
 ) {
     var expanded by rememberSaveable(calls.joinToString(",") { it.id }) { mutableStateOf(false) }
     val rotation by animateFloatAsState(
@@ -395,6 +411,7 @@ internal fun ToolGroupCard(
                                 result = results[call.id],
                                 running = call.id in activeIds,
                                 onOpenFile = onOpenFile,
+                                showLiveCode = showLiveCode,
                             )
                         }
                     }
@@ -413,6 +430,7 @@ internal fun TurnActivityCard(
     workedLabel: String,
     activity: List<ChatMessage>,
     onOpenFile: (String, Int?) -> Unit,
+    showLiveCode: Boolean = true,
 ) {
     if (activity.isEmpty()) return
     var expanded by rememberSaveable(calls.joinToString(",") { it.id }) { mutableStateOf(false) }
@@ -515,6 +533,7 @@ internal fun TurnActivityCard(
                                 result = results[call.id],
                                 running = false,
                                 onOpenFile = onOpenFile,
+                                showLiveCode = showLiveCode,
                             )
                         }
                     }

@@ -990,6 +990,9 @@ fun ChatScreen(
                 val runningIds = remember(state.runningCalls) {
                     state.runningCalls.map { it.id }.toSet()
                 }
+                val committedCallIds = remember(state.messages, state.currentTurnId) {
+                    state.messages.filter { it.turnId == state.currentTurnId }.flatMap { it.toolCalls }.map { it.id }.toSet()
+                }
 
                 // Precompute message lookup maps to eliminate O(N^2) scans in LazyColumn items
                 val turnFinalAssistantIds = remember(state.messages) {
@@ -1191,6 +1194,7 @@ fun ChatScreen(
                                             workedLabel = workedLabel,
                                             activity = activity,
                                             onOpenFile = onOpenFile,
+                                            showLiveCode = state.showLiveCode,
                                         )
                                     }
                                 }
@@ -1309,7 +1313,8 @@ fun ChatScreen(
                                             }
                                         }
                                     }
-                                    if (otherCalls.size >= 3) {
+                                    if (otherCalls.size >= 3 && !(state.showLiveCode && otherCalls.any {
+                                            it.name in com.androidharness.app.agent.LiveCodePreview.tools })) {
                                         indexedItem(key = "message-$messageKey-tools", contentType = ChatListContentType.Tools) {
                                             Box(Modifier.animateItem(fadeInSpec = fastEffectsSpec(), placementSpec = null, fadeOutSpec = null)) {
                                                 ToolGroupCard(
@@ -1318,18 +1323,23 @@ fun ChatScreen(
                                                     runningIds = runningIds,
                                                     onOpenFile = onOpenFile,
                                                     subagentSteps = state.subagentSteps,
+                                                    showLiveCode = state.showLiveCode,
                                                 )
                                             }
                                         }
                                     } else {
                                         for (call in otherCalls) {
-                                            indexedItem(key = "message-$messageKey-tool-${call.id}", contentType = ChatListContentType.Tool) {
+                                            indexedItem(key = if (state.showLiveCode && call.name in com.androidharness.app.agent.LiveCodePreview.tools)
+                                                "live-code-${message.turnId}-${call.id}" else "message-$messageKey-tool-${call.id}", contentType = ChatListContentType.Tool) {
                                                 Box(Modifier.animateItem(fadeInSpec = fastEffectsSpec(), placementSpec = null, fadeOutSpec = null)) {
                                                     ToolCallCard(
                                                         call = call,
                                                         result = toolResults[call.id],
                                                         running = call.id in runningIds,
                                                         onOpenFile = onOpenFile,
+                                                        showLiveCode = state.showLiveCode,
+                                                        codeDraft = if (isTurnRunning) state.codeDrafts[call.id] else null,
+                                                        awaitingApproval = isTurnRunning && state.pendingApproval?.call?.id == call.id,
                                                     )
                                                 }
                                             }
@@ -1387,11 +1397,12 @@ fun ChatScreen(
                     }
 
                     if (state.showLiveCode) {
-                        state.codeDrafts.values.forEach { draft ->
-                            indexedItem(key = "live-code-${draft.id}", contentType = ChatListContentType.Tool) {
+                        state.codeDrafts.values.filter { it.id !in committedCallIds }.forEach { draft ->
+                            indexedItem(key = "live-code-${state.currentTurnId}-${draft.id}", contentType = ChatListContentType.Tool) {
                                 com.androidharness.app.ui.chat.components.LiveCodeCard(
                                     draft = draft,
                                     awaitingApproval = state.pendingApproval?.call?.id == draft.id,
+                                    onOpenFile = onOpenFile,
                                 )
                             }
                         }

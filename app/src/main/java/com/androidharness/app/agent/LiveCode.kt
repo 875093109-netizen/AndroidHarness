@@ -30,6 +30,27 @@ internal object LiveCodePreview {
     private const val MAX_ARGUMENTS = 1_000_000
     private const val MAX_DIFF_CHARS = 80_000
     private const val MAX_PREVIEW_LINES = 80
+
+    /** Rebuild a bounded preview from saved arguments, using measured counts when available. */
+    suspend fun fromCall(call: com.androidharness.app.core.ToolCallData,
+        result: com.androidharness.app.core.ChatMessage?, running: Boolean): LiveCodeDraft? {
+        val draft = build(call.id, call.name, call.argumentsJson, complete = true) ?: return null
+        val measured = call.codeChanges.associateBy { com.androidharness.app.workspace.normalizeRelPath(it.path) }
+        return draft.copy(
+            stage = when {
+                result?.isError == true -> CodeDraftStage.FAILED
+                result != null -> CodeDraftStage.SAVED
+                running -> CodeDraftStage.WRITING
+                else -> CodeDraftStage.READY
+            },
+            comparisonAvailable = call.name != "write_file" || measured.isNotEmpty() || result?.text?.startsWith("Created ") == true,
+            files = draft.files.map { file ->
+                measured[com.androidharness.app.workspace.normalizeRelPath(file.path)]?.let {
+                    file.copy(added = it.added, removed = it.removed)
+                } ?: file
+            },
+        )
+    }
     internal data class Field(val key: String, val text: String, val complete: Boolean)
 
     internal fun fields(json: CharSequence): List<Field> {

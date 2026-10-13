@@ -14,6 +14,40 @@ import org.junit.rules.TemporaryFolder
 class LiveCodeTest {
     @get:Rule val temp = TemporaryFolder()
 
+    @Test fun `saved rewrite uses measured counts rather than treating the whole file as new`() = runBlocking {
+        val call = ToolCallData("a", "write_file", """{"path":"src/a.kt","content":"one\ntwo\nthree\n"}""",
+            codeChanges = listOf(com.androidharness.app.core.ToolCodeChange("src/a.kt", 1, 4)))
+        val result = com.androidharness.app.core.ChatMessage(com.androidharness.app.core.Role.TOOL, "Overwrote src/a.kt")
+        val draft = LiveCodePreview.fromCall(call, result, false)!!
+        assertEquals(CodeDraftStage.SAVED, draft.stage)
+        assertTrue(draft.comparisonAvailable)
+        assertEquals(1, draft.files.single().added)
+        assertEquals(4, draft.files.single().removed)
+    }
+
+    @Test fun `old saved rewrites with no baseline do not claim a measured diff`() = runBlocking {
+        val call = ToolCallData("a", "write_file", """{"path":"a.kt","content":"one\n"}""")
+        val overwritten = com.androidharness.app.core.ChatMessage(com.androidharness.app.core.Role.TOOL, "Overwrote a.kt")
+        assertFalse(LiveCodePreview.fromCall(call, overwritten, false)!!.comparisonAvailable)
+        assertTrue(LiveCodePreview.fromCall(call, overwritten.copy(text = "Created a.kt"), false)!!.comparisonAvailable)
+        assertEquals(CodeDraftStage.FAILED, LiveCodePreview.fromCall(call, overwritten.copy(isError = true), false)!!.stage)
+    }
+
+    @Test fun `persisted counts remain attached to their own patch file and old tool JSON still loads`() = runBlocking {
+        val old = kotlinx.serialization.json.Json.decodeFromString(ToolCallData.serializer(),
+            """{"id":"old","name":"write_file","argumentsJson":"{}"}""")
+        assertTrue(old.codeChanges.isEmpty())
+        val patch = "--- a/one.kt\n+++ b/one.kt\n@@ -1,1 +1,1 @@\n-a\n+b\n--- a/two.py\n+++ b/two.py\n@@ -1,1 +1,1 @@\n-c\n+d\n"
+        val call = ToolCallData("p", "apply_patch", buildJsonObject { put("patch", JsonPrimitive(patch)) }.toString(),
+            codeChanges = listOf(com.androidharness.app.core.ToolCodeChange("two.py", 3, 5),
+                com.androidharness.app.core.ToolCodeChange("one.kt", 2, 4)))
+        val decoded = kotlinx.serialization.json.Json.decodeFromString(ToolCallData.serializer(),
+            kotlinx.serialization.json.Json.encodeToString(ToolCallData.serializer(), call))
+        val files = LiveCodePreview.fromCall(decoded, com.androidharness.app.core.ChatMessage(com.androidharness.app.core.Role.TOOL), false)!!.files
+        assertEquals(listOf(2, 3), files.map { it.added })
+        assertEquals(listOf(4, 5), files.map { it.removed })
+    }
+
     @Test fun `incomplete escaped strings decode without exposing JSON or false paths`() = runBlocking {
         val raw = """{"path":"src/Main.kt","content":"val s = \"path\": \"fake.kt\"\n// \u263a\nval x = \""""
         val draft = LiveCodePreview.build("a", "write_file", raw, false)!!

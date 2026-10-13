@@ -286,6 +286,12 @@ interface HarnessDao {
     @Insert
     suspend fun insertMessage(message: MessageEntity)
 
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnId = :turnId AND role = 'ASSISTANT' AND toolCallsJson != '[]'")
+    suspend fun toolMessagesForTurn(sessionId: String, turnId: String): List<MessageEntity>
+
+    @Query("UPDATE messages SET toolCallsJson = :calls WHERE id = :messageId")
+    suspend fun updateToolCalls(messageId: String, calls: String)
+
     /** Deletes [messageId] and every message after it in the session. */
     @Query(
         "DELETE FROM messages WHERE sessionId = :sessionId AND (createdAt > " +
