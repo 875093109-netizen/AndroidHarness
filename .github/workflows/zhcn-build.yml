@@ -63,11 +63,19 @@ jobs:
             exit 1
           fi
           "$APKSIGNER" verify --print-certs "$APK"
-          DIGEST=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
-          echo "Signer SHA-256 digest: $DIGEST"
-          EXPECTED="D6:DA:FD:AF:CB:72:27:63:9F:71:56:74:D0:66:FD:5E:2E:76:E2:A6:EF:08:13:F4:B9:D7:DA:9E:04:C9:1C:FB"
-          if [ "$DIGEST" != "$EXPECTED" ]; then
-            echo "::error::APK signer digest differs from the stable key (expected $EXPECTED). In-place upgrades would break."
+          # apksigner output format varies: "Signer #1 certificate SHA-256 digest: aa:bb:.."
+          # or "V2 Signer: certificate SHA-256 digest: aabb..". Normalise both before comparing.
+          RAW=$("$APKSIGNER" verify --print-certs "$APK" | grep -i 'SHA-256 digest' | head -1 | sed 's/.*digest: *//')
+          if [ -z "$RAW" ]; then
+            echo "::error::could not read a SHA-256 signer digest from apksigner output"
+            exit 1
+          fi
+          NORM=$(printf '%s' "$RAW" | tr -d ':' | tr 'A-Z' 'a-z')
+          EXPECTED=$(printf '%s' "D6:DA:FD:AF:CB:72:27:63:9F:71:56:74:D0:66:FD:5E:2E:76:E2:A6:EF:08:13:F4:B9:D7:DA:9E:04:C9:1C:FB" | tr -d ':' | tr 'A-Z' 'a-z')
+          echo "signer SHA-256 (normalised): $NORM"
+          echo "expected SHA-256 (normalised): $EXPECTED"
+          if [ "$NORM" != "$EXPECTED" ]; then
+            echo "::error::APK signer differs from the stable key. In-place upgrades would break."
             exit 1
           fi
           echo "OK: APK is signed with the stable key."
