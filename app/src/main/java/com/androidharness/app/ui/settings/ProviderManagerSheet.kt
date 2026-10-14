@@ -1,56 +1,29 @@
 package com.androidharness.app.ui.settings
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.material3.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.androidharness.app.llm.ProviderModelSearch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidharness.app.llm.ModelsDev
 import com.androidharness.app.llm.ProviderConfig
 import com.androidharness.app.llm.ProviderType
-import com.androidharness.app.llm.endpointPath
-import com.androidharness.app.ui.common.ProviderMark
 import com.androidharness.app.ui.theme.fastEffectsSpec
 import kotlinx.coroutines.launch
 
@@ -70,6 +43,8 @@ fun ProviderManagerSheet(
     onDismiss: () -> Unit,
     onSetActive: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onEnabledChange: (String, Boolean) -> Unit,
+    onMove: (String, Int, List<String>) -> Unit,
     onSave: (
         existing: ProviderConfig?,
         name: String,
@@ -83,6 +58,11 @@ fun ProviderManagerSheet(
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<ProviderConfig?>(null) }
     var showForm by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var showDisabled by rememberSaveable { mutableStateOf(false) }
+    val visible = providers.filter { (it.enabled || showDisabled || query.isNotBlank()) &&
+        ProviderModelSearch.providerMatches(it, emptyList(), query) }
+    val visibleIds = visible.map { it.id }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Crossfade(
@@ -91,175 +71,56 @@ fun ProviderManagerSheet(
             label = "provider manager page",
         ) { inForm ->
             if (!inForm) {
-                val sheetHeight = (LocalConfiguration.current.screenHeightDp * 0.92f).dp
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(sheetHeight)
-                        .padding(horizontal = 16.dp)
-                        .navigationBarsPadding(),
+                LazyColumn(
+                    Modifier.fillMaxWidth().height((LocalConfiguration.current.screenHeightDp * .9f).dp)
+                        .padding(horizontal = 16.dp).navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "Providers",
-                                style = MaterialTheme.typography.titleMediumEmphasized,
-                            )
-                            Text(
-                                "Choose the service that powers this chat",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Providers", style = MaterialTheme.typography.titleMediumEmphasized, modifier = Modifier.weight(1f))
+                            IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close") }
                         }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close")
+                        Text("Disabled providers stay searchable. Existing chats keep their model.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FilledTonalButton(onClick = { editing = null; showForm = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add provider")
                         }
+                        OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search providers") },
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        FilterChip(selected = showDisabled, onClick = { showDisabled = !showDisabled }, label = { Text("Show disabled") })
                     }
-                    FilledTonalButton(
-                        onClick = {
-                            editing = null
-                            showForm = true
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 12.dp),
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Add provider")
+                    itemsIndexed(visible, key = { _, p -> p.id }) { index, provider ->
+                        ProviderListCard(provider, provider.id == activeProviderId, index > 0, index < visible.lastIndex,
+                            onSelect = {
+                                if (!provider.enabled) onEnabledChange(provider.id, true)
+                                onSetActive(provider.id)
+                                onDismiss()
+                            },
+                            onEnabledChange = { onEnabledChange(provider.id, it) },
+                            onMove = { onMove(provider.id, it, visibleIds) },
+                            onEdit = { editing = provider; showForm = true },
+                            onDelete = { onDelete(provider.id) })
                     }
-                    // Fills the leftover sheet height. A wrap-content list
-                    // collapses, and its drags fight the dismiss gesture.
-                    LazyColumn(
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        itemsIndexed(providers, key = { _, p -> p.id }) { index, provider ->
-                            val active = provider.id == activeProviderId
-                            Surface(
-                                onClick = {
-                                    onSetActive(provider.id)
-                                    onDismiss()
-                                },
-                                color = if (active) MaterialTheme.colorScheme.secondaryContainer
-                                else MaterialTheme.colorScheme.surfaceContainerLow,
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 1.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-                                ) {
-                                    ProviderMark(size = 40.dp)
-                                    Spacer(Modifier.width(11.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                provider.name,
-                                                style = MaterialTheme.typography.titleSmallEmphasized,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f, fill = false),
-                                            )
-                                            if (active) {
-                                                Spacer(Modifier.width(6.dp))
-                                                Surface(
-                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                                    shape = RoundedCornerShape(50),
-                                                ) {
-                                                    Text(
-                                                        "Active",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Text(
-                                            if (com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id)) "On-device text chat · Settings > Local models"
-                                            else if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) provider.model
-                                            else "${provider.type.endpointPath} · ${provider.model}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (active) MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    if (active) {
-                                        Icon(
-                                            Icons.Filled.CheckCircle,
-                                            contentDescription = "Active",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(19.dp),
-                                        )
-                                    }
-                                    if (provider.id != com.androidharness.app.llm.HarnessProvider.ID && !com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(provider.id) && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id)) {
-                                        IconButton(onClick = {
-                                            editing = provider
-                                            showForm = true
-                                        }) {
-                                            Icon(
-                                                Icons.Outlined.Edit,
-                                                contentDescription = "Edit",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        IconButton(onClick = { onDelete(provider.id) }) {
-                                            Icon(
-                                                Icons.Outlined.Delete,
-                                                contentDescription = "Delete",
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        }
-                                    }
+                    if (visible.isEmpty()) item {
+                        Text("No matching providers. Try searching or show disabled providers.",
+                            modifier = Modifier.padding(vertical = 20.dp))
+                    }
+                    item {
+                        val context = LocalContext.current
+                        var catalogBusy by remember { mutableStateOf(false) }
+                        var catalogStatus by remember { mutableStateOf<String?>(null) }
+                        Column {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    catalogBusy = true
+                                    try {
+                                        catalogStatus = ModelsDev.refresh(context, force = true)
+                                            ?: "Catalog updated"
+                                    } finally { catalogBusy = false }
                                 }
-                            }
-                        }
-                        item {
-                            // The local model/thinking catalog (models.dev)
-                            // drives which models and tiers the pickers show,
-                            // this forces a fresh download instead of waiting
-                            // for the weekly auto-refresh.
-                            val context = LocalContext.current
-                            var catalogBusy by remember { mutableStateOf(false) }
-                            var catalogStatus by remember { mutableStateOf<String?>(null) }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(
-                                    onClick = {
-                                        scope.launch {
-                                            catalogBusy = true
-                                            val err = ModelsDev.refresh(context, force = true)
-                                            catalogStatus = err
-                                                ?: "Catalog updated: ${ModelsDev.speakableProviders().size} providers"
-                                            catalogBusy = false
-                                        }
-                                    },
-                                    enabled = !catalogBusy,
-                                ) { Text(if (catalogBusy) "Updating catalog…" else "Update model catalog") }
-                                catalogStatus?.let {
-                                    Text(
-                                        it,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (catalogStatus?.startsWith("Catalog updated") == true)
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        else MaterialTheme.colorScheme.error,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
+                            }, enabled = !catalogBusy) { Text(if (catalogBusy) "Updating catalog…" else "Update model catalog") }
+                            catalogStatus?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                         }
                     }
                 }

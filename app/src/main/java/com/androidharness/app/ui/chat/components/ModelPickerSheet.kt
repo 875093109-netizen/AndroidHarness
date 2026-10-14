@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.androidharness.app.data.ModelShortcuts
 import com.androidharness.app.data.ModelShortcut
@@ -69,14 +70,17 @@ import com.androidharness.app.llm.reasoningCapable
 import com.androidharness.app.ui.common.ProviderMark
 import com.androidharness.app.ui.theme.HarnessMono
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import com.androidharness.app.llm.ProviderModelSearch
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.imePadding
 
-/**
- * Model picker for ONE provider (the active one, or [browseProviderId] when
- * browsing from the Providers screen): current selection + thinking tiers +
- * searchable model list with thinking/context badges. Switching providers is
- * a deliberate hop ("Switch provider" → manager sheet), never an accidental
- * scroll into another provider's models.
- */
+/** Current-provider browsing plus an explicit search across connected provider catalogs. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelPickerSheet(
@@ -97,10 +101,13 @@ fun ModelPickerSheet(
     onModelScopeChange: (Boolean) -> Unit = {},
     modelScopeEnabled: Boolean = true,
     modelShortcuts: ModelShortcuts? = null,
+    searchAllProvidersInitially: Boolean = false,
+    onEnableProvider: (String) -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var allProviders by rememberSaveable { mutableStateOf(searchAllProvidersInitially) }
     val context = LocalContext.current
     val shortcuts = remember(context, modelShortcuts) { modelShortcuts ?: ModelShortcuts.get(context) }
     val saved by shortcuts.state.collectAsStateWithLifecycle()
@@ -108,6 +115,7 @@ fun ModelPickerSheet(
     fun select(providerId: String, model: String?) {
         if (!modelScopeEnabled) return
         val id = model ?: providers.firstOrNull { it.id == providerId }?.model
+        if (providers.firstOrNull { it.id == providerId }?.enabled == false) onEnableProvider(providerId)
         onSelect(providerId, model)
         if (!id.isNullOrBlank()) shortcuts.selected(ModelShortcut(providerId, id))
     }
@@ -127,14 +135,6 @@ fun ModelPickerSheet(
         listedProvider?.let { catalogs[it.id].orEmpty() }.orEmpty()
     }
     val normalizedQuery = remember(query) { query.trim().lowercase() }
-    LaunchedEffect(listedProvider?.id) {
-        val provider = listedProvider ?: return@LaunchedEffect
-        if ((chatGptPlan || provider.id == com.androidharness.app.llm.HarnessProvider.ID || listedCatalog.isEmpty()) && !isRefreshing) {
-            isRefreshing = true
-            try { refreshError = onRefreshCatalog(provider.id) }
-            finally { isRefreshing = false }
-        }
-    }
     val availableRows = remember(listedProvider, listedCatalog, chatGptPlan) {
         val provider = listedProvider ?: return@remember emptyList()
         if (chatGptPlan) listedCatalog.sortedWith(newestChatGptFirst) else buildList {
@@ -159,6 +159,39 @@ fun ModelPickerSheet(
             .filter { !thinkOnly || (it.reasoning ?: reasoningCapable(it.id)) }
     }
 
+    val unifiedRows = remember(allProviders, providers, catalogs, query, collection, saved, thinkOnly) {
+        if (!allProviders) emptyList() else ProviderModelSearch.results(providers, catalogs, query, collection, saved.favourites, saved.recent, thinkOnly)
+    }
+    suspend fun refreshProviders(ids: List<String>) {
+        if (isRefreshing || ids.isEmpty()) return
+        isRefreshing = true
+        refreshError = null
+        try {
+            val limit = Semaphore(3)
+            val failures = supervisorScope {
+                ids.map { id -> async {
+                    limit.withPermit {
+                        val message = try { onRefreshCatalog(id) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { "Could not refresh" }
+                        message?.let { "$it · ${providers.firstOrNull { it.id == id }?.name ?: "Provider"}" }
+                    }
+                } }.awaitAll().filterNotNull()
+            }
+            refreshError = failures.firstOrNull()?.let {
+                if (failures.size > 1) "${failures.size} providers could not refresh. $it" else it
+            }
+        } finally { isRefreshing = false }
+    }
+    LaunchedEffect(listedProvider?.id, allProviders) {
+        if (allProviders) {
+            refreshProviders(providers.filter { it.enabled && catalogs[it.id].isNullOrEmpty() }.map { it.id })
+        } else if (listedProvider != null &&
+            (chatGptPlan || listedProvider.id == com.androidharness.app.llm.HarnessProvider.ID || listedCatalog.isEmpty())) {
+            refreshProviders(listOf(listedProvider.id))
+        }
+    }
+
     // Opens fully expanded: half-expanded sheets trap bottom rows behind the
     // drag-to-dismiss gesture, which read as "touch not responding".
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -167,8 +200,10 @@ fun ModelPickerSheet(
         LazyColumn(
             Modifier
                 .fillMaxWidth()
+                // Keep the sheet's expanded anchor stable as searches change its content height.
+                .height((LocalConfiguration.current.screenHeightDp * .9f).dp)
                 .padding(horizontal = 16.dp)
-                .navigationBarsPadding(),
+                .navigationBarsPadding().imePadding(),
         ) {
             item(key = "picker-controls") {
                 Column(Modifier.fillMaxWidth()) {
@@ -176,7 +211,7 @@ fun ModelPickerSheet(
                         Column(Modifier.weight(1f)) {
                             Text("Choose model", style = MaterialTheme.typography.titleMediumEmphasized)
                             Text(
-                                if (chatGptPlan) "Choose a model available with your ChatGPT plan" else "Search, filter, or enter any model ID",
+                                if (allProviders) "Find a model across your providers" else if (chatGptPlan) "Choose a model available with your ChatGPT plan" else "Search, filter, or enter any model ID",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = scheme.onSurfaceVariant,
                             )
@@ -241,12 +276,16 @@ fun ModelPickerSheet(
                     }
 
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !allProviders, onClick = { allProviders = false }, label = { Text("Current provider") })
+                        FilterChip(selected = allProviders, onClick = { allProviders = true }, label = { Text("All providers") })
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("All", "Favourites", "Recent").forEach { label ->
                             FilterChip(selected = collection == label, onClick = { collection = label },
                                 label = { Text(label) })
                         }
                     }
-                    if (collection == "Recent" && recentIds.isNotEmpty()) TextButton(
+                    if (!allProviders && collection == "Recent" && recentIds.isNotEmpty()) TextButton(
                         onClick = { listedId?.let(shortcuts::clearRecent) }) { Text("Clear recent") }
 
                     // Thinking tiers live in the header badge, not here: the picker is
@@ -260,7 +299,7 @@ fun ModelPickerSheet(
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = { Text("Search models") },
+                            placeholder = { Text(if (allProviders) "Search models or providers" else "Search models") },
                             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                             singleLine = true,
                             shape = RoundedCornerShape(14.dp),
@@ -277,16 +316,16 @@ fun ModelPickerSheet(
                             label = { Text("Thinking only", style = MaterialTheme.typography.labelSmall) },
                             modifier = Modifier.padding(top = 8.dp),
                         )
-                        if (!chatGptPlan) AssistChip(
+                        if (!allProviders && !chatGptPlan && listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) AssistChip(
                             onClick = { showAddCustomDialog = true },
                             label = { Text("Custom model", style = MaterialTheme.typography.labelSmall) },
                             leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
                             modifier = Modifier.padding(top = 8.dp),
                         )
-                        listedProvider?.let { p ->
+                        if (allProviders || listedProvider != null) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                if (isRefreshing) "reloading…" else "${visibleRows.size} ${if (visibleRows.size == 1) "model" else "models"}",
+                                if (isRefreshing) "reloading…" else "${if (allProviders) unifiedRows.size else visibleRows.size} ${if ((if (allProviders) unifiedRows.size else visibleRows.size) == 1) "model" else "models"}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -295,9 +334,8 @@ fun ModelPickerSheet(
                                 onClick = {
                                     if (!isRefreshing) {
                                         scope.launch {
-                                            isRefreshing = true
-                                            refreshError = onRefreshCatalog(p.id)
-                                            isRefreshing = false
+                                            refreshProviders(if (allProviders) providers.filter { it.enabled }.map { it.id }
+                                                else listOfNotNull(listedProvider?.id))
                                         }
                                     }
                                 },
@@ -330,7 +368,7 @@ fun ModelPickerSheet(
                         )
                     }
 
-                    if (chatGptPlan) {
+                    if (!allProviders && chatGptPlan) {
                         Text("Using ChatGPT plan", style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(vertical = 8.dp))
                         com.androidharness.app.ui.common.ChatGptUsageLimits(compact = true)
@@ -339,7 +377,38 @@ fun ModelPickerSheet(
             }
             // Controls and models share one scroll area so landscape and large text remain reachable.
             val provider = listedProvider
-            if (provider == null) {
+            if (allProviders) {
+                item(key = "all-provider-search-note") {
+                    Text("Search also finds disabled providers.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp))
+                }
+                if (unifiedRows.isEmpty()) item(key = "empty-unified-models") {
+                    Text(if (isRefreshing) "Loading provider catalogs…" else "No models match. Try another search or refresh catalogs.",
+                        modifier = Modifier.padding(vertical = 20.dp), color = scheme.onSurfaceVariant)
+                }
+                items(unifiedRows.size, key = { index ->
+                    val result = unifiedRows[index]
+                    "all:${result.provider.id.length}:${result.provider.id}:${result.model.id}"
+                }) { index ->
+                    val result = unifiedRows[index]
+                    val entry = result.model
+                    val owner = result.provider
+                    ModelRow(id = entry.displayName ?: entry.id,
+                        providerLabel = owner.name,
+                        providerDisabled = !owner.enabled,
+                        thinking = entry.reasoning ?: reasoningCapable(entry.id), known = entry.reasoning != null,
+                        selected = owner.id == activeProviderId && entry.id == effective,
+                        isCustom = entry.custom,
+                        ctx = ctxLabel(entry.contextTokens ?: ModelsDev.entry(ModelsDev.providerKeyFor(owner.baseUrl), entry.id)?.contextTokens),
+                        note = if (!result.available) "Unavailable · refresh or choose another model" else entry.note,
+                        enabled = modelScopeEnabled && result.available,
+                        favourite = result.shortcut in saved.favourites,
+                        onFavourite = { shortcuts.toggle(result.shortcut) },
+                        onClick = { select(owner.id, entry.id); onDismiss() },
+                        onDelete = if (entry.custom) ({ onDeleteCustomModel(owner.id, entry.id) }) else null)
+                }
+            } else if (provider == null) {
                 item {
                     Text(
                         "Add a provider first. The model list follows from it.",
@@ -440,6 +509,8 @@ fun ModelPickerSheet(
                             entry.contextTokens
                                 ?: ModelsDev.entry(devKey, entry.id)?.contextTokens,
                         ),
+                        providerLabel = if (!provider.enabled) provider.name else null,
+                        providerDisabled = !provider.enabled,
                         note = if (entry.id !in availableIds) "Unavailable · refresh or choose another model" else entry.note,
                         enabled = modelScopeEnabled && entry.id in availableIds,
                         favourite = entry.id in favouriteIds,
@@ -459,7 +530,7 @@ fun ModelPickerSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (!chatGptPlan) TextButton(onClick = { showAddCustomDialog = true }, enabled = listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) {
+                    if (!allProviders && !chatGptPlan) TextButton(onClick = { showAddCustomDialog = true }, enabled = listedProvider?.let { !com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) } == true) {
                         Text("+ Custom model…")
                     }
                     TextButton(onClick = { onDismiss(); onManageProviders() }) {
@@ -487,6 +558,8 @@ fun ModelPickerSheet(
 private fun ModelRow(
     id: String,
     thinking: Boolean,
+    providerLabel: String? = null,
+    providerDisabled: Boolean = false,
     known: Boolean,
     selected: Boolean,
     ctx: String?,
@@ -537,6 +610,10 @@ private fun ModelRow(
                         }
                     }
                 }
+                providerLabel?.let { Text(it, style = MaterialTheme.typography.labelMedium,
+                    color = scheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                if (providerDisabled) Text("Disabled · Enable & use", style = MaterialTheme.typography.labelMedium,
+                    color = scheme.primary)
                 val sub = listOfNotNull(
                     if (thinking) "thinking" else null,
                     ctx,

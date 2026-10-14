@@ -28,6 +28,8 @@ data class AppSettings(
     val dynamicColor: Boolean = true,
     val workspaceLayout: WorkspaceLayoutMode = WorkspaceLayoutMode.AUTO,
     val activeProviderId: String? = null,
+    val providerOrder: List<String> = emptyList(),
+    val disabledProviderIds: Set<String> = emptySet(),
     val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
     val maxContextTokens: Int = DEFAULT_MAX_CONTEXT,
     val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT,
@@ -115,6 +117,8 @@ class SettingsRepository(private val context: Context) {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val WORKSPACE_LAYOUT = stringPreferencesKey("workspace_layout")
         val ACTIVE_PROVIDER = stringPreferencesKey("active_provider_id")
+        val PROVIDER_ORDER = stringPreferencesKey("provider_order")
+        val DISABLED_PROVIDERS = stringSetPreferencesKey("disabled_providers")
         val THINKING_LEVEL = stringPreferencesKey("thinking_level")
         val MAX_CONTEXT = intPreferencesKey("max_context_tokens")
         val MAX_OUTPUT = intPreferencesKey("max_output_tokens")
@@ -163,6 +167,8 @@ class SettingsRepository(private val context: Context) {
             workspaceLayout = WorkspaceLayoutMode.fromStored(prefs[Keys.WORKSPACE_LAYOUT])
                 ?: WorkspaceLayoutMode.AUTO,
             activeProviderId = prefs[Keys.ACTIVE_PROVIDER] ?: com.androidharness.app.llm.HarnessProvider.ID,
+            providerOrder = ProviderListPreferences.decodeOrder(prefs[Keys.PROVIDER_ORDER]),
+            disabledProviderIds = prefs[Keys.DISABLED_PROVIDERS] ?: emptySet(),
             thinkingLevel = prefs[Keys.THINKING_LEVEL]
                 ?.let { runCatching { ThinkingLevel.valueOf(it) }.getOrNull() }
                 ?: ThinkingLevel.OFF,
@@ -212,6 +218,8 @@ class SettingsRepository(private val context: Context) {
             p[Keys.THEME_MODE] = s.themeMode.name
             p[Keys.DYNAMIC_COLOR] = s.dynamicColor
             p[Keys.WORKSPACE_LAYOUT] = s.workspaceLayout.name
+            p[Keys.PROVIDER_ORDER] = ProviderListPreferences.encodeOrder(s.providerOrder)
+            p[Keys.DISABLED_PROVIDERS] = s.disabledProviderIds
             p[Keys.THINKING_LEVEL] = s.thinkingLevel.name
             p[Keys.MAX_CONTEXT] = s.maxContextTokens
             p[Keys.MAX_OUTPUT] = s.maxOutputTokens
@@ -242,6 +250,22 @@ class SettingsRepository(private val context: Context) {
     suspend fun setWebSearchProvider(provider: String) {
         if (provider !in WEB_SEARCH_PROVIDERS) return
         context.settingsStore.edit { it[Keys.WEB_SEARCH_PROVIDER] = provider }
+    }
+
+    suspend fun setProviderEnabled(id: String, enabled: Boolean) {
+        context.settingsStore.edit { prefs ->
+            val disabled = prefs[Keys.DISABLED_PROVIDERS].orEmpty()
+            prefs[Keys.DISABLED_PROVIDERS] = if (enabled) disabled - id else disabled + id
+        }
+    }
+
+    suspend fun moveProvider(id: String, direction: Int, availableIds: List<String>, visibleIds: List<String>) {
+        context.settingsStore.edit { prefs ->
+            val order = ProviderListPreferences.move(
+                ProviderListPreferences.decodeOrder(prefs[Keys.PROVIDER_ORDER]), availableIds, visibleIds, id, direction,
+            )
+            prefs[Keys.PROVIDER_ORDER] = ProviderListPreferences.encodeOrder(order)
+        }
     }
 
     suspend fun setPermissionMode(mode: PermissionMode) {

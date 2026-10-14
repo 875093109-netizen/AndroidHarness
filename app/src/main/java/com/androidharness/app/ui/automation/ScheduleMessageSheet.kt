@@ -132,6 +132,7 @@ internal fun ScheduleMessageSheet(
                     }
                 }
             },
+            onEnableProvider = { id -> scope.launch { container.providers.setEnabled(id, true) } },
             onManageProviders = { page = SchedulePage.PROVIDER })
     } else {
         ModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() },
@@ -241,8 +242,10 @@ internal fun ScheduleMessageSheet(
                                 ScheduleRow(Icons.Outlined.Folder, workspace.name, "") { projectId = workspace.id; page = SchedulePage.DETAILS }
                             }
                         } else {
-                            items(providers.filter { it.name.contains(query, ignoreCase = true) }, key = { it.id }) { p ->
-                                ScheduleRow(Icons.Outlined.SmartToy, p.name, p.model) { providerId = p.id; model = p.model; page = SchedulePage.MODEL }
+                            items(providers.filter { (it.enabled || query.isNotBlank()) && it.name.contains(query, ignoreCase = true) }, key = { it.id }) { p ->
+                                ScheduleRow(Icons.Outlined.SmartToy, p.name, if (p.enabled) p.model else "Disabled · Enable & use") {
+                                    if (!p.enabled) scope.launch { container.providers.setEnabled(p.id, true) }
+                                    providerId = p.id; model = p.model; page = SchedulePage.MODEL }
                             }
                         }
                     }

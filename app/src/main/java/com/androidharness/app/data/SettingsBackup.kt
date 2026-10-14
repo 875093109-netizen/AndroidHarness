@@ -48,6 +48,8 @@ object SettingsBackupPolicy {
             executionModel = settings.executionModel.takeIf { execution },
             subagentProviderId = settings.subagentProviderId.takeIf { subagent },
             subagentModel = settings.subagentModel.takeIf { subagent },
+            providerOrder = settings.providerOrder.filter(keep),
+            disabledProviderIds = settings.disabledProviderIds.filter(keep).toSet(),
         )
     }
 
@@ -116,6 +118,8 @@ object SettingsBackupValidation {
         check(listOfNotNull(file.settings.activeModel, file.settings.planningModel, file.settings.executionModel).all { it.length <= 500 }, SettingsBackupProblem.MODEL_SELECTION)
         check(file.settings.groqWhisperModel in setOf("whisper-large-v3", "whisper-large-v3-turbo"), SettingsBackupProblem.VOICE)
         check(file.providers.map { it.config.id }.distinct().size == file.providers.size, SettingsBackupProblem.PROVIDERS)
+        check(file.settings.providerOrder.size <= 100 && file.settings.disabledProviderIds.size <= 100 &&
+            (file.settings.providerOrder + file.settings.disabledProviderIds).all { it.length <= 500 }, SettingsBackupProblem.PROVIDERS)
         check(file.searchKeys.keys.all { it in setOf("brave", "tavily") }, SettingsBackupProblem.SEARCH)
         val s = file.settings
         check(s.maxContextTokens in 8192..2_000_000 && s.maxOutputTokens in 1..1_000_000 && s.maxIterations in 0..10_000, SettingsBackupProblem.MODEL_LIMITS)
@@ -210,6 +214,8 @@ class SettingsBackup(private val c: AppContainer) {
         val s = file.settings
         c.settings.restorePortable(s.copy(activeProviderId = ids[s.activeProviderId],
             planningProviderId = ids[s.planningProviderId], executionProviderId = ids[s.executionProviderId],
-            subagentProviderId = ids[s.subagentProviderId]))
+            subagentProviderId = ids[s.subagentProviderId],
+            providerOrder = s.providerOrder.mapNotNull(ids::get),
+            disabledProviderIds = s.disabledProviderIds.mapNotNull(ids::get).toSet()))
     }
 }

@@ -54,6 +54,9 @@ data class ProviderConfig(
     val type: ProviderType,
     val baseUrl: String,
     val model: String,
+    /** Picker visibility; saved chats and running work keep their selected connection. */
+    @kotlinx.serialization.Transient
+    val enabled: Boolean = true,
 )
 
 data class ToolSchema(

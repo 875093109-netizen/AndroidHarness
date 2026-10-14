@@ -2273,6 +2273,7 @@ private fun PlanningModelSection(
             onDeleteCustomModel = { providerId, model ->
                 scope.launch { container.providers.removeCustomModel(providerId, model) }
             },
+            onEnableProvider = { id -> scope.launch { container.providers.setEnabled(id, true) } },
             onManageProviders = {
                 managingRoleProvider = role
                 pickingRole = null
@@ -2298,6 +2299,8 @@ private fun PlanningModelSection(
             onDelete = { providerId ->
                 scope.launch { container.providers.delete(providerId) }
             },
+            onEnabledChange = { id, enabled -> scope.launch { container.providers.setEnabled(id, enabled) } },
+            onMove = { id, direction, visible -> scope.launch { container.providers.move(id, direction, visible) } },
             onSave = { existing, name, type, baseUrl, model, apiKey ->
                 scope.launch {
                     val created = if (existing == null) {

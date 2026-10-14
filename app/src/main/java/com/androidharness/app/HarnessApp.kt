@@ -71,7 +71,7 @@ class AppContainer(val appContext: Context) {
             }
                 .forEach { runManager.stopAndJoin(it) }
         })
-    val providers: ProviderRepository = ProviderRepository(appContext, keys, localModels, chatGpt)
+    val providers: ProviderRepository = ProviderRepository(appContext, keys, localModels, chatGpt, settings)
 
     init {
         val chatGptProvider = com.androidharness.app.chatgpt.ChatGptProvider(chatGpt::accessToken,

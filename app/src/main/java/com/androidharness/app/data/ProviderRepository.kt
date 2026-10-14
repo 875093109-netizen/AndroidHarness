@@ -13,6 +13,7 @@ import com.androidharness.app.llm.ProviderType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -24,6 +25,7 @@ class ProviderRepository(
     private val keys: KeyStoreManager,
     private val localModels: com.androidharness.app.local.LocalModelManager,
     private val chatGpt: com.androidharness.app.chatgpt.ChatGptAccounts,
+    private val settings: SettingsRepository,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val listKey = stringPreferencesKey("provider_list")
@@ -43,7 +45,14 @@ class ProviderRepository(
         HarnessProvider.customModelIds = harnessCustom
         accounts.accounts.filter { it.connected && it.models.isNotEmpty() }.map { it.config() } +
             listOf(HarnessProvider.config.copy(model = HarnessProvider.sanitize(saved.firstOrNull { it.id == HarnessProvider.ID }?.model, harnessCustom))) + saved.filterNot { it.id == HarnessProvider.ID || com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(it.id) || com.androidharness.app.local.LocalModelCatalog.isLocal(it.id) || it.baseUrl.startsWith("local://") } + localModels.configs(installed)
+    }.combine(settings.settings) { available, saved ->
+        ProviderListPreferences.apply(available, saved.providerOrder, saved.disabledProviderIds)
     }
+
+    suspend fun setEnabled(id: String, enabled: Boolean) = settings.setProviderEnabled(id, enabled)
+
+    suspend fun move(id: String, direction: Int, visibleIds: List<String>) =
+        settings.moveProvider(id, direction, providers.first().map { it.id }, visibleIds)
 
     /**
      * Fetched model catalogs per provider id, persisted so the pickers show

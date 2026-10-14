@@ -98,6 +98,7 @@ internal fun SubagentModelSection(container: AppContainer, settings: AppSettings
         onDeleteCustomModel = { providerId, model ->
             scope.launch { container.providers.removeCustomModel(providerId, model) }
         },
+        onEnableProvider = { id -> scope.launch { container.providers.setEnabled(id, true) } },
         onManageProviders = { picking = false; managing = true },
     )
 
@@ -114,6 +115,8 @@ internal fun SubagentModelSection(container: AppContainer, settings: AppSettings
             }
         },
         onDelete = { providerId -> scope.launch { container.providers.delete(providerId) } },
+        onEnabledChange = { id, enabled -> scope.launch { container.providers.setEnabled(id, enabled) } },
+        onMove = { id, direction, visible -> scope.launch { container.providers.move(id, direction, visible) } },
         onSave = { existing, name, type, baseUrl, model, apiKey ->
             scope.launch {
                 val provider = if (existing == null) container.providers.add(name, type, baseUrl, model, apiKey)

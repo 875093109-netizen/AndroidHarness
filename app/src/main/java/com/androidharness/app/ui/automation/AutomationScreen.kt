@@ -1092,6 +1092,7 @@ private fun AutomationEditorDialog(
             onDeleteCustomModel = { providerId, model ->
                 scope.launch { container.providers.removeCustomModel(providerId, model) }
             },
+            onEnableProvider = { id -> scope.launch { container.providers.setEnabled(id, true) } },
             onManageProviders = {
                 showModelPicker = false
                 showProviderManager = true
@@ -1118,6 +1119,8 @@ private fun AutomationEditorDialog(
                     selectedModel = null
                 }
             },
+            onEnabledChange = { id, enabled -> scope.launch { container.providers.setEnabled(id, enabled) } },
+            onMove = { id, direction, visible -> scope.launch { container.providers.move(id, direction, visible) } },
             onSave = { existing, name, type, baseUrl, model, apiKey ->
                 scope.launch {
                     val saved = if (existing == null) {

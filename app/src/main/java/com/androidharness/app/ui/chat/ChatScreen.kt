@@ -433,6 +433,7 @@ fun ChatScreen(
             onModelScopeChange = viewModel::setSameModelAcrossChats,
             modelScopeEnabled = state.modelSelectionReady && !state.modelSelectionBusy,
             // Provider management stays in-conversation: a sheet, not a screen.
+            onEnableProvider = { id -> scope.launch { viewModel.container.providers.setEnabled(id, true) } },
             onManageProviders = {
                 activeProviderManagerTarget = target
                 activeModelPickerTarget = null
@@ -468,6 +469,8 @@ fun ChatScreen(
                 viewModel.selectProviderForTarget(target, providerId)
             },
             onDelete = viewModel::deleteProvider,
+            onEnabledChange = { id, enabled -> scope.launch { viewModel.container.providers.setEnabled(id, enabled) } },
+            onMove = { id, direction, visible -> scope.launch { viewModel.container.providers.move(id, direction, visible) } },
             onSave = viewModel::upsertProvider,
         )
     }

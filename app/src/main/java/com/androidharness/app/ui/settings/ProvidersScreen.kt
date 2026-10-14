@@ -1,46 +1,27 @@
 package com.androidharness.app.ui.settings
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.androidharness.app.llm.ProviderModelSearch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidharness.app.AppContainer
 import com.androidharness.app.data.AppSettings
 import com.androidharness.app.llm.ProviderConfig
-import com.androidharness.app.llm.ProviderType
 import com.androidharness.app.llm.effectiveApiKey
 import com.androidharness.app.ui.chat.components.ModelPickerSheet
 import com.androidharness.app.ui.common.AppHeader
@@ -61,6 +42,12 @@ fun ProvidersScreen(
     var showDialog by remember { mutableStateOf(false) }
     var showModelsFor by remember { mutableStateOf<String?>(null) }
     val scheme = MaterialTheme.colorScheme
+    var query by rememberSaveable { mutableStateOf("") }
+    var showDisabled by rememberSaveable { mutableStateOf(false) }
+    var showAllModels by remember { mutableStateOf(false) }
+    val visibleProviders = providers.filter { (it.enabled || showDisabled || query.isNotBlank()) &&
+        ProviderModelSearch.providerMatches(it, catalogs[it.id].orEmpty(), query) }
+    val visibleIds = visibleProviders.map { it.id }
 
     Scaffold(
         containerColor = scheme.surface,
@@ -72,84 +59,98 @@ fun ProvidersScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                FilledTonalButton(
-                    onClick = {
-                        editing = null
-                        showDialog = true
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp, bottom = 4.dp),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add provider")
-                }
-            }
-            items(providers, key = { it.id }) { provider ->
-                ProviderCard(
-                    provider = provider,
-                    active = provider.id == settings.activeProviderId,
-                    catalogSize = catalogs[provider.id]?.size,
-                    onSetActive = {
-                        scope.launch {
-                            container.settings.setActiveProvider(provider.id)
-                            // Keep a picked model only if it belongs here.
-                            if (!catalogs[provider.id].orEmpty().any { it.id == settings.activeModel }) {
-                                container.settings.setActiveModel(null)
-                            }
-                            // Adapt the stored thinking tier to the new model.
-                            com.androidharness.app.agent.ThinkingSpecs.clampStoredLevel(
-                                container.settings,
-                                provider.model,
-                                com.androidharness.app.llm.ModelsDev.providerKeyFor(provider.baseUrl),
-                            )
-                        }
-                    },
-                    onEdit = {
-                        editing = provider
-                        showDialog = true
-                    },
-                    onDelete = {
-                        scope.launch { container.providers.delete(provider.id) }
-                    },
-                    onBrowseModels = { showModelsFor = provider.id },
-                )
-            }
-            if (providers.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                modifier = Modifier.fillMaxHeight().widthIn(max = 960.dp).fillMaxWidth().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 item {
-                    Surface(
-                        color = scheme.surfaceContainerLow,
-                        shape = RoundedCornerShape(18.dp),
+                    FilledTonalButton(
+                        onClick = {
+                            editing = null
+                            showDialog = true
+                        },
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
+                            .padding(top = 14.dp, bottom = 4.dp),
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add provider")
+                    }
+                }
+                item {
+                    OutlinedTextField(value = query, onValueChange = { query = it },
+                        label = { Text("Search providers or models") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = showDisabled, onClick = { showDisabled = !showDisabled }, label = { Text("Show disabled") })
+                        TextButton(onClick = { showAllModels = true }) { Text("Search all models") }
+                    }
+                    Text("Disabled providers stay searchable. Existing chats keep their model.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                }
+                items(visibleProviders, key = { it.id }) { provider ->
+                    ProviderListCard(
+                        provider = provider,
+                        active = provider.id == settings.activeProviderId,
+                        canMoveUp = visibleIds.indexOf(provider.id) > 0,
+                        canMoveDown = visibleIds.indexOf(provider.id) < visibleIds.lastIndex,
+                        onEnabledChange = { enabled -> scope.launch { container.providers.setEnabled(provider.id, enabled) } },
+                        onMove = { direction -> scope.launch { container.providers.move(provider.id, direction, visibleIds) } },
+                        onSelect = {
+                            scope.launch {
+                                container.providers.setEnabled(provider.id, true)
+                                val selectedModel = settings.activeModel.takeIf { model ->
+                                    catalogs[provider.id].orEmpty().any { it.id == model }
+                                }
+                                container.settings.setActiveSelection(provider.id, selectedModel)
+                                // Adapt the stored thinking tier to the new model.
+                                com.androidharness.app.agent.ThinkingSpecs.clampStoredLevel(
+                                    container.settings,
+                                    selectedModel ?: provider.model,
+                                    com.androidharness.app.llm.ModelsDev.providerKeyFor(provider.baseUrl),
+                                )
+                            }
+                        },
+                        onEdit = {
+                            editing = provider
+                            showDialog = true
+                        },
+                        onDelete = {
+                            scope.launch { container.providers.delete(provider.id) }
+                        },
+                        onBrowseModels = { showModelsFor = provider.id },
+                        catalogSize = catalogs[provider.id]?.size,
+                    )
+                }
+                if (visibleProviders.isEmpty()) {
+                    item {
+                        Surface(
+                            color = scheme.surfaceContainerLow,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
                         ) {
-                            ProviderMark(size = 48.dp)
-                            Text(
-                                "No providers yet",
-                                style = MaterialTheme.typography.titleSmallEmphasized,
-                                modifier = Modifier.padding(top = 12.dp),
-                            )
-                            Text(
-                                "Add a provider, connect its API key, then choose the model you want to use.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = scheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                            ) {
+                                ProviderMark(size = 48.dp)
+                                Text(
+                                    if (providers.isEmpty()) "No providers yet" else "No matching providers",
+                                    style = MaterialTheme.typography.titleSmallEmphasized,
+                                    modifier = Modifier.padding(top = 12.dp),
+                                )
+                                Text(
+                                    if (providers.isEmpty()) "Add a provider, then choose its model." else "Try a different search or show disabled providers.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -187,18 +188,19 @@ fun ProvidersScreen(
         )
     }
 
-    if (showModelsFor != null) {
+    if (showModelsFor != null || showAllModels) {
         ModelPickerSheet(
             providers = providers,
             activeProviderId = settings.activeProviderId,
             activeModel = settings.activeModel,
             catalogs = catalogs,
             browseProviderId = showModelsFor,
-            onDismiss = { showModelsFor = null },
+            searchAllProvidersInitially = showAllModels,
+            onEnableProvider = { id -> scope.launch { container.providers.setEnabled(id, true) } },
+            onDismiss = { showModelsFor = null; showAllModels = false },
             onSelect = { providerId, model ->
                 scope.launch {
-                    container.settings.setActiveProvider(providerId)
-                    container.settings.setActiveModel(model)
+                    container.settings.setActiveSelection(providerId, model)
                     val provider = providers.firstOrNull { it.id == providerId }
                     if (provider != null) {
                         com.androidharness.app.agent.ThinkingSpecs.clampStoredLevel(
@@ -235,108 +237,5 @@ fun ProvidersScreen(
             },
             onManageProviders = { /* already here */ },
         )
-    }
-}
-
-@Composable
-private fun ProviderCard(
-    provider: ProviderConfig,
-    active: Boolean,
-    catalogSize: Int?,
-    onSetActive: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onBrowseModels: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        onClick = onSetActive,
-        color = if (active) scheme.secondaryContainer else scheme.surfaceContainerLow,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(
-            1.dp,
-            if (active) scheme.primary.copy(alpha = 0.3f) else scheme.outlineVariant.copy(alpha = 0.35f),
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 11.dp, bottom = 11.dp),
-        ) {
-            ProviderMark(size = 42.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        provider.name,
-                        style = MaterialTheme.typography.titleSmallEmphasized,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (active) {
-                        Spacer(Modifier.width(7.dp))
-                        Surface(
-                            color = scheme.primary.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(50),
-                        ) {
-                            Text(
-                                "Active",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = scheme.primary,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
-                Text(
-                    if (com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id)) "Local text chat"
-                    else if (provider.id == com.androidharness.app.llm.HarnessProvider.ID) provider.model
-                    else "${provider.type.label} · ${provider.model}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (active) scheme.onSecondaryContainer.copy(alpha = 0.78f) else scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val detail = when {
-                    com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(provider.id) -> "Using ChatGPT plan · Manage in Settings > Connected accounts"
-                    com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id) -> "On-device · Manage in Settings > Local models"
-                    provider.id == com.androidharness.app.llm.HarnessProvider.ID -> "Built-in · Free"
-                    catalogSize != null && catalogSize > 0 -> "$catalogSize models available"
-                    else -> provider.baseUrl
-                }
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (active) scheme.onSecondaryContainer.copy(alpha = 0.62f) else scheme.onSurfaceVariant.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (active) {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Active",
-                    tint = scheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(2.dp))
-            }
-            IconButton(onClick = onBrowseModels) {
-                Icon(
-                    Icons.Outlined.Layers,
-                    contentDescription = "Browse models",
-                    tint = scheme.onSurfaceVariant,
-                )
-            }
-            if (provider.id != com.androidharness.app.llm.HarnessProvider.ID && !com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(provider.id) && !com.androidharness.app.local.LocalModelCatalog.isLocal(provider.id)) {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = scheme.onSurfaceVariant)
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = scheme.error)
-                }
-            }
-        }
     }
 }
