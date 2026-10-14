@@ -227,7 +227,7 @@ class OpenAiResponsesProvider(
 
         event["error"]?.jsonObjectOrAbsent()?.let { err ->
             val message = err["message"]?.jsonPrimitive?.contentOrNull ?: "Upstream server error"
-            return listOf(StreamEvent.Failure(message))
+            return listOf(StreamEvent.Failure(message, code = providerErrorStatus(err), errorCode = providerErrorCode(err)))
         }
 
         val type = event["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
@@ -237,7 +237,8 @@ class OpenAiResponsesProvider(
                 val message = event["response"]?.jsonObjectOrAbsent()
                     ?.get("error")?.jsonObjectOrAbsent()
                     ?.get("message")?.jsonPrimitive?.contentOrNull ?: "Request failed"
-                events += StreamEvent.Failure(message)
+                val error = event["response"]?.jsonObjectOrAbsent()?.get("error")?.jsonObjectOrAbsent()
+                events += StreamEvent.Failure(message, code = providerErrorStatus(error), errorCode = providerErrorCode(error))
             }
 
             type == "response.output_text.delta" ->

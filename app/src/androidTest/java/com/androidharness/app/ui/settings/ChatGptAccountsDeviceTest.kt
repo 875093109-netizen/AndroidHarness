@@ -91,6 +91,10 @@ class ChatGptAccountsDeviceTest {
     }
 
     @Test fun quotaSwitchPreservesToolsAndQueuedMessageAndRecordsActualModel() = runBlocking {
+        val originalSettings = c.settings.settings.first()
+        // Runs reread live permissions; isolate this synthetic read-file fixture from emulator preferences.
+        c.settings.setPermissionMode(PermissionMode.FULL_AUTO)
+        c.settings.setFallbackPolicy(FallbackPolicy())
         val originalProvider = ProviderFactory.chatGptProvider
         val originalModels = ModelCatalog.chatGptModels
         val a = ProviderConfig("chatgpt:fixture-a", "ChatGPT · Primary", ProviderType.OPENAI_RESPONSES, ChatGptProtocol.RESOURCE, "sol")
@@ -131,7 +135,8 @@ class ChatGptAccountsDeviceTest {
         try {
             c.runManager.startRun(session, "Read saved.txt and finish", emptyList(), a, "managed", PermissionMode.FULL_AUTO,
                 AgentMode.ACT, 2000, 100000, ThinkingLevel.OFF, 5, workspaceOverride = c.workspace.fsFor(project))
-            assertTrue(withContext(Dispatchers.IO) { secondAccount.await(30, TimeUnit.SECONDS) })
+            val switched = withContext(Dispatchers.IO) { secondAccount.await(30, TimeUnit.SECONDS) }
+            assertTrue("Account switch did not start: ${c.runManager.controls.flow(session).value}; requests=${synchronized(attempts) { attempts.toList() }}; history=${c.sessions.messages(session).map { it.role to it.text }}", switched)
             val restored = TaskControlStore(File(c.appContext.filesDir, "task-controls")).flow(session).value
             assertEquals(b.id, restored.provider?.id)
             assertEquals(setOf(a.id, b.id), restored.usedProviderIds)
@@ -165,6 +170,8 @@ class ChatGptAccountsDeviceTest {
             c.workspace.deleteProject(project)
             c.workspace.setActiveProject(previousProject.id)
             root.deleteRecursively()
+            c.settings.setPermissionMode(originalSettings.permissionMode)
+            c.settings.setFallbackPolicy(originalSettings.fallbackPolicy)
         }
     }
 

@@ -106,6 +106,7 @@ data class ChatUiState(
     val pendingPlan: String? = null,
     val queuedMessage: String? = null,
     val taskControl: com.androidharness.app.agent.TaskRecord = com.androidharness.app.agent.TaskRecord(),
+    val fallbackDefaults: com.androidharness.app.llm.FallbackPolicy = com.androidharness.app.llm.FallbackPolicy(),
     val attachments: List<String> = emptyList(), // display names of picked images
     val fileAttachments: List<FileAttachment> = emptyList(),
     val maxContextTokens: Int = 1_000_000,
@@ -651,6 +652,7 @@ class ChatViewModel(
             activeProviderId = selection.active?.providerId,
             activeModel = selection.active?.model,
             sameModelAcrossChats = settings.sameModelAcrossChats,
+            fallbackDefaults = settings.fallbackPolicy,
             modelSelectionReady = true,
             modelSelectionError = models.error,
             planningModelsEnabled = settings.planningModelsEnabled,
@@ -867,6 +869,14 @@ class ChatViewModel(
                 c.runManager.controls.update(sid) { it.copy(autoContinue = enabled, autoContinueLimit = limit.coerceIn(1, 5)) }
             } catch (e: Exception) { _state.update { it.copy(error = e.message) } }
         }
+    }
+
+    suspend fun saveFallbacks(mode: com.androidharness.app.llm.FallbackMode?, policy: com.androidharness.app.llm.FallbackPolicy) {
+        require(policy.valid())
+        val sid = ensureSession()
+        check(!c.runManager.isRunning(sid)) { "Pause the task before editing its fallback chain." }
+        c.runManager.controls.update(sid) { it.copy(fallbackMode = mode ?: com.androidharness.app.llm.FallbackMode.DEFAULT,
+            fallbackOverride = policy.takeIf { mode == com.androidharness.app.llm.FallbackMode.CUSTOM }) }
     }
 
     fun saveTaskControls(pins: String, summary: String?, limits: com.androidharness.app.agent.TaskLimits, clearOlder: Boolean) {
@@ -1641,8 +1651,13 @@ class ChatViewModel(
                 check(key.isNotBlank()) { "Add this provider's API key before compacting." }
                 val snapshot = c.sessions.compactionSnapshot(sid)
                 check(snapshot.history.size >= 4) { "There are too few messages to compact yet." }
-                val summary = com.androidharness.app.agent.HistoryCompactor.summarize(
-                    com.androidharness.app.llm.ProviderFactory.create(provider), provider, key, com.androidharness.app.agent.RunRecovery.context(snapshot.history, c.runManager.controls.flow(sid).value),
+                val routing = com.androidharness.app.llm.FallbackRun(provider) {
+                    val record = c.runManager.controls.flow(sid).value
+                    com.androidharness.app.llm.effectiveFallback(c.settings.settings.first().fallbackPolicy, record.fallbackMode, record.fallbackOverride)
+                }
+                var compactionProvider = provider
+                val summary = kotlinx.coroutines.withContext(routing) { com.androidharness.app.agent.HistoryCompactor.summarize(
+                    c.routedProvider(), provider, key, com.androidharness.app.agent.RunRecovery.context(snapshot.history, c.runManager.controls.flow(sid).value),
                     current.maxContextTokens, sid,
                     progress = { note -> if (sessionId == sid) _state.update { it.copy(compactionNote = note) } },
                     event = { event, cfg -> when (event) {
@@ -1654,9 +1669,15 @@ class ChatViewModel(
                                 cacheReported = event.cacheReported, cachePrices = com.androidharness.app.llm.ModelsDev.exactCachePrices(cfg.baseUrl, cfg.model))
                         }
                         // Keep the snapshot unchanged until its summary is committed.
-                        is com.androidharness.app.llm.StreamEvent.ProviderChanged -> c.chatModels.providerChanged(sid, provider, event.config)
+                        is com.androidharness.app.llm.StreamEvent.ProviderChanged -> {
+                            if (event.persistSelection) c.chatModels.providerChanged(sid, compactionProvider, event.config)
+                            compactionProvider = event.config
+                            if (sessionId == sid) _state.update { it.copy(compactionNote = event.reason) }
+                        }
+                        is com.androidharness.app.llm.StreamEvent.Retrying -> if (sessionId == sid)
+                            _state.update { it.copy(compactionNote = "Retrying summary · attempt ${event.attempt} · ${event.reason}") }
                         else -> Unit
-                    } })
+                    } }) }
                 val before = c.sessions.commitCompaction(sid, summary, snapshot)
                 committed = true
                 c.runManager.controls.update(sid) { it.copy(summaryOverride = summary, contextAfter = before) }

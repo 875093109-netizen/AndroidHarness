@@ -209,7 +209,7 @@ class OpenAiCompatProvider(
             // even if the gateway follows the error with [DONE] or a finish chunk.
             acc.clear()
             indexToId.clear()
-            return listOf(StreamEvent.Failure(message, code))
+            return listOf(StreamEvent.Failure(message, code, errorCode = providerErrorCode(err as? JsonObject)))
         }
 
         val events = mutableListOf<StreamEvent>()

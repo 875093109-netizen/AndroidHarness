@@ -78,6 +78,7 @@ data class RequestOptions(
     val thinking: com.androidharness.app.agent.ThinkingLevel =
         com.androidharness.app.agent.ThinkingLevel.OFF,
     val cacheKey: String? = null,
+    val allowAccountSwitch: Boolean = true,
 )
 
 sealed interface StreamEvent {
@@ -110,7 +111,8 @@ sealed interface StreamEvent {
     data class Failure(val message: String, val code: Int? = null, val errorCode: String? = null,
         val retryable: Boolean? = null) : StreamEvent
     /** A consented account/model change before any response output. */
-    data class ProviderChanged(val config: ProviderConfig, val reason: String) : StreamEvent
+    data class ProviderChanged(val config: ProviderConfig, val reason: String, val persistSelection: Boolean = true) : StreamEvent
+    data class Retrying(val attempt: Int, val delayMs: Long, val reason: String) : StreamEvent
 
     /**
      * Emitted once per request when the stream terminates. [finishReason] is
@@ -121,7 +123,20 @@ sealed interface StreamEvent {
     data class Done(val finishReason: String? = null) : StreamEvent
 }
 
-class ApiException(val code: Int, message: String) : IOException("HTTP $code: $message")
+class ApiException(val code: Int, message: String) : IOException("HTTP $code: $message") {
+    val errorCode: String? = runCatching {
+        providerErrorCode((Json.parseToJsonElement(message) as? JsonObject)?.get("error") as? JsonObject)
+    }.getOrNull()
+}
+
+/** Keep machine-readable quota/rate-limit categories separate from human error text. */
+internal fun providerErrorCode(error: JsonObject?): String? = listOf("code", "type", "status")
+    .mapNotNull { (error?.get(it) as? kotlinx.serialization.json.JsonPrimitive)?.content }
+    .firstOrNull { it.isNotBlank() && it != "null" && it.toIntOrNull() == null }
+
+internal fun providerErrorStatus(error: JsonObject?): Int? =
+    listOf("code", "status").mapNotNull { (error?.get(it) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+        .firstOrNull { it in 400..599 }
 
 /**
  * [JsonObject] accessor that treats an explicit JSON `null` exactly like an

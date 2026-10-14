@@ -309,6 +309,7 @@ class RunManager(
         val record = controls.update(sid) { it.copy(
             status = "running", reason = null, provider = runConfig, workspacePath = runWorkspace.displayPath,
             allowModelFallback = allowModelFallback,
+            fallbackPrimary = if (resume) it.fallbackPrimary ?: runConfig else runConfig,
             usedProviderIds = (if (resume) it.usedProviderIds else emptySet()) + runConfig.id,
             mode = mode.name, thinking = thinking.name, maxOutput = maxOutputTokens,
             maxContext = maxContextTokens, maxIterations = maxIterations, turnId = turnId,
@@ -368,7 +369,11 @@ class RunManager(
         var end: RunFollowUps.End? = null
         val startSignal = CompletableDeferred<Unit>()
         // Enter try/finally even if a stop lands before the worker is scheduled.
-        val job = appScope.launch(budget + RecoveryLedger(recoveryMessages), start = kotlinx.coroutines.CoroutineStart.ATOMIC) {
+        val fallback = com.androidharness.app.llm.FallbackRun(record.fallbackPrimary) {
+            val chat = controls.flow(sid).value
+            com.androidharness.app.llm.effectiveFallback(settings.settings.first().fallbackPolicy, chat.fallbackMode, chat.fallbackOverride)
+        }
+        val job = appScope.launch(budget + RecoveryLedger(recoveryMessages) + fallback, start = kotlinx.coroutines.CoroutineStart.ATOMIC) {
             var promptJob: Job? = null
             var flushJob: Job? = null
             var completed = false
@@ -443,7 +448,7 @@ class RunManager(
                                 model = event.model, totalInputTokens = event.inputTokens.toLong(),
                                 outputTokens = event.outputTokens.toLong(), cachedTokens = event.cachedInputTokens.toLong(),
                                 cacheWriteTokens = event.cacheWriteTokens.toLong(),
-                                providerKey = com.androidharness.app.llm.ModelsDev.providerKeyFor(runConfig.baseUrl),
+                                providerKey = event.providerKey ?: com.androidharness.app.llm.ModelsDev.providerKeyFor(runConfig.baseUrl),
                             )
                             budget.add(event.inputTokens, event.outputTokens, price)
                             if (record.limits.cost > 0 && price == null) {
@@ -750,7 +755,7 @@ class RunManager(
             }
 
             is AgentEvent.ProviderChanged -> {
-                controls.flow(sessionId).value.provider?.let { from ->
+                controls.flow(sessionId).value.provider?.takeIf { event.persistSelection }?.let { from ->
                     try { chatModels.providerChanged(sessionId, from, event.config) }
                     catch (ce: CancellationException) { throw ce }
                     catch (_: Exception) { /* The running task still records the actual account below. */ }

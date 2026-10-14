@@ -37,6 +37,7 @@ docs/
 screenshots/
 mock-server.js
 README.full.md
+android-harness-website/
 
 # --- OS noise ---
 .DS_Store

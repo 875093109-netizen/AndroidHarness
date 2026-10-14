@@ -183,6 +183,8 @@ fun ChatScreen(
     }
     var activeModelPickerTarget by remember { mutableStateOf<ModelSelectionTarget?>(null) }
     var activeProviderManagerTarget by remember { mutableStateOf<ModelSelectionTarget?>(null) }
+    var showFallbacks by rememberSaveable { mutableStateOf(false) }
+    var fallbackProviderId by rememberSaveable { mutableStateOf<String?>(null) }
     val showModelPicker = activeModelPickerTarget != null
     val showProviderManager = activeProviderManagerTarget != null
     var showWebPreview by remember { mutableStateOf(false) }
@@ -432,6 +434,14 @@ fun ChatScreen(
             sameModelAcrossChats = state.sameModelAcrossChats,
             onModelScopeChange = viewModel::setSameModelAcrossChats,
             modelScopeEnabled = state.modelSelectionReady && !state.modelSelectionBusy,
+            fallbackSummary = when (state.taskControl.fallbackMode) {
+                com.androidharness.app.llm.FallbackMode.OFF -> "Off for this chat"
+                com.androidharness.app.llm.FallbackMode.CUSTOM -> "Custom chain · ${state.taskControl.fallbackOverride?.targets?.size ?: 0} models"
+                com.androidharness.app.llm.FallbackMode.DEFAULT -> if (state.fallbackDefaults.enabled)
+                    "Use default · ${state.fallbackDefaults.targets.size} models" else "Use default · No chain"
+            },
+            onEditFallbacks = { fallbackProviderId = currentProviderId; activeModelPickerTarget = null; showFallbacks = true },
+            fallbackEditEnabled = !state.busy,
             // Provider management stays in-conversation: a sheet, not a screen.
             onEnableProvider = { id -> scope.launch { viewModel.container.providers.setEnabled(id, true) } },
             onManageProviders = {
@@ -440,6 +450,12 @@ fun ChatScreen(
             },
         )
     }
+    if (showFallbacks) com.androidharness.app.ui.settings.FallbackEditorSheet(
+        container = viewModel.container, defaultPolicy = state.fallbackDefaults,
+        chatMode = state.taskControl.fallbackMode, customPolicy = state.taskControl.fallbackOverride,
+        selectedProviderId = fallbackProviderId ?: state.activeProviderId,
+        onDismiss = { showFallbacks = false }, onSave = viewModel::saveFallbacks,
+    )
     if (state.showSkillsSheet) {
         SkillsPickerSheet(
             skills = state.skills,

@@ -44,7 +44,7 @@ class ChatGptAutoSwitch(
                 return@flow
             }
             recordLimit(current.id)
-            if (!enabled() || output) {
+            if (!options.allowAccountSwitch || !enabled() || output) {
                 emit(rejected.copy(retryable = false))
                 return@flow
             }
@@ -69,7 +69,7 @@ class ChatGptAutoSwitch(
     private fun StreamEvent.hasOutput(): Boolean = when (this) {
         is StreamEvent.TextDelta -> text.isNotEmpty()
         is StreamEvent.ThinkingDelta -> text.isNotEmpty()
-        is StreamEvent.ToolCallReady, is StreamEvent.ToolCallBatch, is StreamEvent.Usage, is StreamEvent.Done -> true
+        is StreamEvent.ToolCallDelta, is StreamEvent.ToolCallReady, is StreamEvent.ToolCallBatch, is StreamEvent.Usage, is StreamEvent.Done -> true
         is StreamEvent.Batch -> events.any { it.hasOutput() }
         else -> false
     }

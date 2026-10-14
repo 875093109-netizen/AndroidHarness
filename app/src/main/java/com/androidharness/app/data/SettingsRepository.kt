@@ -30,6 +30,7 @@ data class AppSettings(
     val activeProviderId: String? = null,
     val providerOrder: List<String> = emptyList(),
     val disabledProviderIds: Set<String> = emptySet(),
+    val fallbackPolicy: com.androidharness.app.llm.FallbackPolicy = com.androidharness.app.llm.FallbackPolicy(),
     val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
     val maxContextTokens: Int = DEFAULT_MAX_CONTEXT,
     val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT,
@@ -107,6 +108,10 @@ data class AppSettings(
 }
 
 class SettingsRepository(private val context: Context) {
+    suspend fun setFallbackPolicy(policy: com.androidharness.app.llm.FallbackPolicy) {
+        val encoded = com.androidharness.app.llm.FallbackPolicy.encode(policy)
+        context.settingsStore.edit { it[Keys.FALLBACK_POLICY] = encoded }
+    }
 
     private object Keys {
         val PERMISSION_MODE = stringPreferencesKey("permission_mode")
@@ -119,6 +124,7 @@ class SettingsRepository(private val context: Context) {
         val ACTIVE_PROVIDER = stringPreferencesKey("active_provider_id")
         val PROVIDER_ORDER = stringPreferencesKey("provider_order")
         val DISABLED_PROVIDERS = stringSetPreferencesKey("disabled_providers")
+        val FALLBACK_POLICY = stringPreferencesKey("fallback_policy")
         val THINKING_LEVEL = stringPreferencesKey("thinking_level")
         val MAX_CONTEXT = intPreferencesKey("max_context_tokens")
         val MAX_OUTPUT = intPreferencesKey("max_output_tokens")
@@ -169,6 +175,7 @@ class SettingsRepository(private val context: Context) {
             activeProviderId = prefs[Keys.ACTIVE_PROVIDER] ?: com.androidharness.app.llm.HarnessProvider.ID,
             providerOrder = ProviderListPreferences.decodeOrder(prefs[Keys.PROVIDER_ORDER]),
             disabledProviderIds = prefs[Keys.DISABLED_PROVIDERS] ?: emptySet(),
+            fallbackPolicy = com.androidharness.app.llm.FallbackPolicy.decode(prefs[Keys.FALLBACK_POLICY]),
             thinkingLevel = prefs[Keys.THINKING_LEVEL]
                 ?.let { runCatching { ThinkingLevel.valueOf(it) }.getOrNull() }
                 ?: ThinkingLevel.OFF,
@@ -220,6 +227,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.WORKSPACE_LAYOUT] = s.workspaceLayout.name
             p[Keys.PROVIDER_ORDER] = ProviderListPreferences.encodeOrder(s.providerOrder)
             p[Keys.DISABLED_PROVIDERS] = s.disabledProviderIds
+            p[Keys.FALLBACK_POLICY] = com.androidharness.app.llm.FallbackPolicy.encode(s.fallbackPolicy)
             p[Keys.THINKING_LEVEL] = s.thinkingLevel.name
             p[Keys.MAX_CONTEXT] = s.maxContextTokens
             p[Keys.MAX_OUTPUT] = s.maxOutputTokens

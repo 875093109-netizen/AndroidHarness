@@ -36,6 +36,7 @@ internal object HistoryCompactor {
             var finishReason: String? = null
             var done = false
             var failureCode: Int? = null
+            val managedFallback = coroutineContext[FallbackRun]?.policy()?.enabled == true
             val failure = StreamRetrier.run(
                 streamFor = {
                     provider.streamChat(cfg, apiKey, PROMPT,
@@ -61,7 +62,8 @@ internal object HistoryCompactor {
                 },
                 retryReason = { it },
                 emitEvent = { progress("Retrying summary · attempt ${it.attempt}") },
-                stallTimeoutMs = stallTimeoutMs,
+                stallTimeoutMs = if (managedFallback) maxOf(stallTimeoutMs, 610_000) else stallTimeoutMs,
+                allowRetries = !managedFallback,
             )
             if (failure != null) error(listOfNotNull(failureCode?.let { "HTTP $it" }, failure).joinToString(": "))
             check(done) { "The summary stream ended before completion. Retry /compact." }

@@ -17,6 +17,7 @@ import com.androidharness.app.data.SessionRepository
 import com.androidharness.app.data.SettingsRepository
 import com.androidharness.app.data.db.AppDatabase
 import com.androidharness.app.llm.ProviderFactory
+import com.androidharness.app.llm.effectiveApiKey
 import com.androidharness.app.tools.ToolRegistry
 import com.androidharness.app.workspace.WorkspaceManager
 import kotlinx.coroutines.Dispatchers
@@ -164,8 +165,31 @@ class AppContainer(val appContext: Context) {
         searchApi = { searchApiConfig },
     )
     val mcp = com.androidharness.app.tools.mcp.McpManager(appContext, linuxEnv, keys, codeGraph)
+    fun routedProvider(): com.androidharness.app.llm.LlmProvider =
+        com.androidharness.app.llm.FallbackProvider(
+                factory = ProviderFactory::create,
+                resolve = { target ->
+                    providers.providers.first().firstOrNull { it.id == target.providerId && it.enabled }
+                        ?.takeIf { provider -> com.androidharness.app.llm.ProviderModelSearch.models(provider, providers.catalog(target.providerId)).any { it.id == target.model } }
+                        ?.copy(model = target.model)
+                },
+                keyFor = { config ->
+                    if (config.id == com.androidharness.app.llm.HarnessProvider.ID) providers.harnessApiKey()
+                    else {
+                        val live = providers.providers.first().firstOrNull { it.id == config.id }
+                        if (live == null || live.baseUrl != config.baseUrl || live.type != config.type) ""
+                        else config.effectiveApiKey(providers.apiKey(config.id))
+                    }
+                },
+                destination = { config ->
+                    if (config.id == com.androidharness.app.llm.HarnessProvider.ID)
+                        com.androidharness.app.llm.HarnessProvider.pool[config.model]?.baseUrl ?: config.baseUrl
+                    else config.baseUrl
+                },
+        )
+
     val engine: AgentEngine = AgentEngine(
-        providerFactory = { config -> ProviderFactory.create(config) },
+        providerFactory = { routedProvider() },
         registry = registry,
         checkpointer = checkpoints,
         imageStore = images,

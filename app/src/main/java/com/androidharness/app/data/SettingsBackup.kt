@@ -50,6 +50,7 @@ object SettingsBackupPolicy {
             subagentModel = settings.subagentModel.takeIf { subagent },
             providerOrder = settings.providerOrder.filter(keep),
             disabledProviderIds = settings.disabledProviderIds.filter(keep).toSet(),
+            fallbackPolicy = settings.fallbackPolicy.copy(targets = settings.fallbackPolicy.targets.filter { keep(it.providerId) }),
         )
     }
 
@@ -116,6 +117,7 @@ object SettingsBackupValidation {
         check(file.providers.size <= 100 && file.servers.size <= 100, SettingsBackupProblem.CONNECTION_COUNT)
         check(file.settings.disabledSkills.size <= 1000 && file.settings.disabledSkills.all { it.length <= 500 }, SettingsBackupProblem.SKILLS)
         check(listOfNotNull(file.settings.activeModel, file.settings.planningModel, file.settings.executionModel).all { it.length <= 500 }, SettingsBackupProblem.MODEL_SELECTION)
+        check(file.settings.fallbackPolicy.valid(), SettingsBackupProblem.MODEL_SELECTION)
         check(file.settings.groqWhisperModel in setOf("whisper-large-v3", "whisper-large-v3-turbo"), SettingsBackupProblem.VOICE)
         check(file.providers.map { it.config.id }.distinct().size == file.providers.size, SettingsBackupProblem.PROVIDERS)
         check(file.settings.providerOrder.size <= 100 && file.settings.disabledProviderIds.size <= 100 &&
@@ -216,6 +218,9 @@ class SettingsBackup(private val c: AppContainer) {
             planningProviderId = ids[s.planningProviderId], executionProviderId = ids[s.executionProviderId],
             subagentProviderId = ids[s.subagentProviderId],
             providerOrder = s.providerOrder.mapNotNull(ids::get),
-            disabledProviderIds = s.disabledProviderIds.mapNotNull(ids::get).toSet()))
+            disabledProviderIds = s.disabledProviderIds.mapNotNull(ids::get).toSet(),
+            fallbackPolicy = s.fallbackPolicy.copy(targets = s.fallbackPolicy.targets.mapNotNull { target ->
+                ids[target.providerId]?.let { target.copy(providerId = it) }
+            })))
     }
 }

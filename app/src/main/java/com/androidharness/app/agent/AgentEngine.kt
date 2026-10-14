@@ -9,6 +9,7 @@ import com.androidharness.app.data.ImageStore
 import com.androidharness.app.llm.LlmProvider
 import com.androidharness.app.llm.ProviderConfig
 import com.androidharness.app.llm.RequestOptions
+import com.androidharness.app.llm.hasResponseOutput
 import com.androidharness.app.llm.StreamEvent
 import com.androidharness.app.tools.FuzzyEdit
 import com.androidharness.app.tools.ToolContext
@@ -112,7 +113,7 @@ data class ContextEstimate(
 }
 
 sealed interface AgentEvent {
-    data class ProviderChanged(val config: com.androidharness.app.llm.ProviderConfig, val reason: String) : AgentEvent
+    data class ProviderChanged(val config: com.androidharness.app.llm.ProviderConfig, val reason: String, val persistSelection: Boolean = true) : AgentEvent
     /** Includes independently configured subagents so disconnecting stops every affected run. */
     data class ProviderUsed(val providerId: String) : AgentEvent
     data class Text(val delta: String) : AgentEvent
@@ -139,6 +140,7 @@ sealed interface AgentEvent {
         val cacheReported: Boolean = false,
         val cachePrices: com.androidharness.app.llm.ModelsDev.CachePrices? = null,
         val parentCallId: String? = null,
+        val providerKey: String? = null,
     ) : AgentEvent
     /** A transient provider failure will be retried after [delayMs]. */
     data class Retrying(val attempt: Int, val delayMs: Long, val reason: String) : AgentEvent
@@ -352,6 +354,7 @@ class AgentEngine(
             var thinking = StringBuilder()
             var calls = mutableListOf<ToolCallData>()
             var outputTokens = 0
+            var responseStarted = false
             var requestStartedNs = System.nanoTime()
             var firstTokenNs = 0L
             var lastTokenNs = 0L
@@ -373,11 +376,13 @@ class AgentEngine(
             }
 
             val streamEventHandler: suspend (StreamEvent) -> Unit = { event ->
+                if (event.hasResponseOutput()) responseStarted = true
                 when (event) {
                     is StreamEvent.ProviderChanged -> {
                         config = event.config
-                        emit(AgentEvent.ProviderChanged(event.config, event.reason))
+                        emit(AgentEvent.ProviderChanged(event.config, event.reason, event.persistSelection))
                     }
+                    is StreamEvent.Retrying -> emit(AgentEvent.Retrying(event.attempt, event.delayMs, event.reason))
                     is StreamEvent.TextDelta -> {
                         if (event.text.isNotEmpty()) {
                             val now = System.nanoTime()
@@ -432,6 +437,7 @@ class AgentEngine(
                                 event.inputTokens, event.outputTokens,
                                 event.cachedInputTokens, event.cacheWriteTokens,
                                 config.model, config.name, cacheReported = event.cacheReported,
+                                providerKey = com.androidharness.app.llm.ModelsDev.providerKeyFor(config.baseUrl),
                                 cachePrices = if (com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(config.id)) null else com.androidharness.app.llm.ModelsDev.exactCachePrices(config.baseUrl, config.model),
                             )
                         )
@@ -445,12 +451,14 @@ class AgentEngine(
             // retried with backoff, but ONLY while nothing has streamed yet,
             // re-emitting deltas the UI already showed would duplicate output.
             var recoverableFailure = false
+            val managedFallback = kotlin.coroutines.coroutineContext[com.androidharness.app.llm.FallbackRun]?.policy()?.enabled == true
             var failure = StreamRetrier.run(
                 streamFor = {
                     provider.streamChat(config, apiKey, requestSystemPrompt, working, tools, requestOptions)
                 },
                 onAttemptStart = {
                     codeTracker.clear()
+                    responseStarted = false
                     requestStartedNs = System.nanoTime()
                     outputTokens = 0
                     firstTokenNs = 0L
@@ -460,18 +468,18 @@ class AgentEngine(
                     calls = mutableListOf()
                     lastFinishReason = null
                 },
-                hasOutput = { text.isNotEmpty() || thinking.isNotEmpty() || calls.isNotEmpty() },
+                hasOutput = { responseStarted || text.isNotEmpty() || thinking.isNotEmpty() || calls.isNotEmpty() },
                 handleEvent = streamEventHandler,
                 retryReason = { f -> f.take(200) },
                 emitEvent = { emit(it) },
-                stallTimeoutMs = if (localChat) 600_000 else 90_000,
-                allowRetries = !localChat,
+                stallTimeoutMs = if (managedFallback) 610_000 else if (localChat) 600_000 else 90_000,
+                allowRetries = !localChat && !managedFallback,
                 onTerminalFailure = { recoverableFailure = it },
             )
 
             // Dynamic vision degradation fallback: if provider rejected image input,
             // strip images from working history and retry without failing the turn.
-            if (!localChat && failure != null && isVisionError(failure) && working.any { it.imageData.isNotEmpty() }) {
+            if (!localChat && !responseStarted && failure != null && isVisionError(failure) && working.any { it.imageData.isNotEmpty() }) {
                 val stripped = ContextHygiene.stripImages(working)
                 working.clear()
                 working.addAll(stripped)
@@ -481,6 +489,7 @@ class AgentEngine(
                     },
                     onAttemptStart = {
                         codeTracker.clear()
+                        responseStarted = false
                         requestStartedNs = System.nanoTime()
                         outputTokens = 0
                         firstTokenNs = 0L
@@ -490,10 +499,12 @@ class AgentEngine(
                         calls = mutableListOf()
                         lastFinishReason = null
                     },
-                    hasOutput = { text.isNotEmpty() || thinking.isNotEmpty() || calls.isNotEmpty() },
+                    hasOutput = { responseStarted || text.isNotEmpty() || thinking.isNotEmpty() || calls.isNotEmpty() },
                     handleEvent = streamEventHandler,
                     retryReason = { f -> f.take(200) },
                     emitEvent = { emit(it) },
+                    stallTimeoutMs = if (managedFallback) 610_000 else 90_000,
+                    allowRetries = !managedFallback,
                     onTerminalFailure = { recoverableFailure = it },
                 )
             }
@@ -1248,6 +1259,7 @@ class AgentEngine(
             val text = StringBuilder()
             val calls = mutableListOf<ToolCallData>()
             val subThinking = StringBuilder()
+            val managedFallback = kotlin.coroutines.coroutineContext[com.androidharness.app.llm.FallbackRun]?.policy()?.enabled == true
 
             // Same transient-failure retry policy as the main loop. Unlike the
             // main loop, thinking output does not block a retry here: the
@@ -1269,6 +1281,7 @@ class AgentEngine(
                             emitEvent(AgentEvent.ProviderUsed(config.id))
                             step(event.reason)
                         }
+                        is StreamEvent.Retrying -> emitEvent(AgentEvent.Retrying(event.attempt, event.delayMs, event.reason))
                         is StreamEvent.TextDelta -> text.append(event.text)
                         is StreamEvent.ThinkingDelta -> subThinking.append(event.text)
                         is StreamEvent.ToolCallReady -> calls += event.call
@@ -1289,6 +1302,7 @@ class AgentEngine(
                                 config.model, config.name, cacheReported = event.cacheReported,
                                 cachePrices = if (com.androidharness.app.chatgpt.ChatGptProtocol.isProvider(config.id)) null else com.androidharness.app.llm.ModelsDev.exactCachePrices(config.baseUrl, config.model),
                                 parentCallId = parentCallId,
+                                providerKey = com.androidharness.app.llm.ModelsDev.providerKeyFor(config.baseUrl),
                             )
                         )
                         else -> {}
@@ -1296,6 +1310,8 @@ class AgentEngine(
                 },
                 retryReason = { f -> "subagent: ${f.take(160)}" },
                 emitEvent = { emitEvent(it) },
+                stallTimeoutMs = if (managedFallback) 610_000 else 90_000,
+                allowRetries = !managedFallback,
             )
 
             if (text.isBlank() && calls.isEmpty()) {
@@ -1420,9 +1436,11 @@ class AgentEngine(
             val summary = HistoryCompactor.summarize(provider, config, apiKey, older, maxContextTokens, sessionId,
                 progress = { emit(AgentEvent.Compacting(it)) },
                 event = { event, cfg -> when (event) {
-                    is StreamEvent.ProviderChanged -> emit(AgentEvent.ProviderChanged(event.config, event.reason))
+                    is StreamEvent.ProviderChanged -> emit(AgentEvent.ProviderChanged(event.config, event.reason, event.persistSelection))
+                    is StreamEvent.Retrying -> emit(AgentEvent.Retrying(event.attempt, event.delayMs, event.reason))
                     is StreamEvent.Usage -> emit(AgentEvent.Usage(event.inputTokens, event.outputTokens, event.cachedInputTokens,
-                        event.cacheWriteTokens, cfg.model, cfg.name, event.cacheReported, com.androidharness.app.llm.ModelsDev.exactCachePrices(cfg.baseUrl, cfg.model)))
+                        event.cacheWriteTokens, cfg.model, cfg.name, event.cacheReported, com.androidharness.app.llm.ModelsDev.exactCachePrices(cfg.baseUrl, cfg.model),
+                        providerKey = com.androidharness.app.llm.ModelsDev.providerKeyFor(cfg.baseUrl)))
                     else -> Unit
                 } })
             emit(AgentEvent.Compacted(summary, keepCount))

@@ -117,7 +117,8 @@ class GeminiProvider(
 
                 chunk["error"]?.jsonObjectOrAbsent()?.get("message")?.jsonPrimitive?.contentOrNull
                     ?.let {
-                        emit(StreamEvent.Failure(it))
+                        emit(StreamEvent.Failure(it, code = providerErrorStatus(chunk["error"]?.jsonObjectOrAbsent()),
+                            errorCode = providerErrorCode(chunk["error"]?.jsonObjectOrAbsent())))
                         return@collect
                     }
 

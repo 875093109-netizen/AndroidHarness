@@ -199,7 +199,9 @@ class AnthropicProvider(
 
                 "error" -> StreamEvent.Failure(
                     event["error"]?.jsonObjectOrAbsent()?.get("message")?.jsonPrimitive?.contentOrNull
-                        ?: "Anthropic stream error"
+                        ?: "Anthropic stream error",
+                    code = providerErrorStatus(event["error"]?.jsonObjectOrAbsent()),
+                    errorCode = providerErrorCode(event["error"]?.jsonObjectOrAbsent()),
                 )
 
                 else -> null

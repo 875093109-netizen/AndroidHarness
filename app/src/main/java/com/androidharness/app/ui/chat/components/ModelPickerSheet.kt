@@ -103,6 +103,9 @@ fun ModelPickerSheet(
     modelShortcuts: ModelShortcuts? = null,
     searchAllProvidersInitially: Boolean = false,
     onEnableProvider: (String) -> Unit = {},
+    fallbackSummary: String? = null,
+    fallbackEditEnabled: Boolean = true,
+    onEditFallbacks: () -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
@@ -221,6 +224,14 @@ fun ModelPickerSheet(
                         }
                     }
 
+                    fallbackSummary?.let { summary ->
+                        TextButton(onClick = onEditFallbacks, enabled = modelScopeEnabled && fallbackEditEnabled, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text("Fallbacks", style = MaterialTheme.typography.labelLarge)
+                                Text(summary, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                     sameModelAcrossChats?.let { shared ->
                         Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {

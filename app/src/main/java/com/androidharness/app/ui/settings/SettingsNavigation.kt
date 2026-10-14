@@ -8,7 +8,7 @@ internal enum class SettingsPage(
 ) {
     GITHUB("GitHub", "Sign in, import repositories and publish changes", "GitHub integration", "oauth login git pat token scopes import commit push preset automation"),
     CONNECTED_ACCOUNTS("Connected accounts", "Use your ChatGPT plan for coding and tools", "Special providers", "chatgpt codex subscription sign in login account plan oauth"),
-    MODELS("Models & providers", "Connections, current model and separate planning models", "Your assistant", "api key token provider openai anthropic gemini thinking planning execution"),
+    MODELS("Models & providers", "Connections, models and fallback routing", "Your assistant", "api key token provider openai anthropic gemini thinking planning execution fallback retries quota privacy routing"),
     SUBAGENT("Sub-Agent settings", "Choose subagent models and action tools", "Your assistant", "subagent sub-agent sub agent model provider action tools permissions edit commands"),
     LOCAL_MODELS("Local models", "Choose and manage models that run on your phone", "Your assistant", "offline hugging face gguf safetensors llama ram memory storage cpu download uninstall context input output vision images threads"),
     AGENT("Agent behavior", "Permissions, context limits and project instructions", "Your assistant", "approval full access iterations tools agents.md memory"),
@@ -52,6 +52,7 @@ private val primarySettingsEntries = SettingsPage.entries.map { page ->
 }
 
 private val subSettingsEntries = listOf(
+    SettingsSearchEntry("Fallbacks", "Models & providers · Ordered backup models and routing privacy", SettingsPage.MODELS, "fallback failover retry retries quota ZDR privacy chain", anchor = "Fallbacks"),
     SettingsSearchEntry("Continue with ChatGPT", "Connected accounts · Use your ChatGPT plan", SettingsPage.CONNECTED_ACCOUNTS, "sign in codex subscription", anchor = "Continue with ChatGPT"),
     SettingsSearchEntry("Manage providers", "Models & providers · Add connections, API keys and choose models", SettingsPage.MODELS, "provider api key openai anthropic gemini login model", anchor = "Manage providers"),
     SettingsSearchEntry("Dual planning models", "Models & providers · Configure separate plan and execute models", SettingsPage.MODELS, "planning plan model execute execution model", anchor = "Dual planning models"),

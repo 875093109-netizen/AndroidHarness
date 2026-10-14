@@ -58,6 +58,7 @@ class ChatGptAutoSwitchTest {
 
     @Test fun `visible thinking text tools and nested batches prevent replay`() = runBlocking {
         val outputs = listOf(StreamEvent.TextDelta("Partial"), StreamEvent.ThinkingDelta("Reasoning"),
+            StreamEvent.ToolCallDelta("preview", "write_file", "{"),
             StreamEvent.ToolCallReady(ToolCallData("c2", "read_file", "{}")),
             StreamEvent.Batch(listOf(StreamEvent.TextDelta("Nested"))), StreamEvent.Usage(10, 1))
         for (output in outputs) {

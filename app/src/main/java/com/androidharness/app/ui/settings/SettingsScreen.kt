@@ -251,6 +251,7 @@ fun SettingsScreen(
                                 PlanningModelSection(container, settings, scope, onOpenProviders)
                             }
                             CurrentSetupCard(settings, providers)
+                            FallbackSettingsSection(container, settings.fallbackPolicy)
                         }
                         SettingsPage.SUBAGENT -> {
                             SubagentModelSection(container, settings)
