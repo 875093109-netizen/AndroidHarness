@@ -62,3 +62,7 @@ id_ed25519
 # --- Backend dependencies / local logs ---
 node_modules/
 *.log
+
+# Python bytecode
+__pycache__/
+*.pyc

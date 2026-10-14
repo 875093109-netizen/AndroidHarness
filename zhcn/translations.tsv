@@ -1,0 +1,825 @@
+# English<TAB>简体中文; only literal UI strings, never API models/protocol identifiers
+Choose model	选择模型
+Search the catalog or enter a model ID	搜索模型目录或输入模型 ID
+Choose the model this provider should use	选择该服务商要使用的模型
+Search models or type an ID	搜索模型或输入模型 ID
+Profile name (optional)	配置名称（可选）
+Save	保存
+Cancel	取消
+Back	返回
+Close	关闭
+Continue	继续
+Continue anyway	仍然继续
+Choose protocol	选择协议
+Protocol	协议
+Server address	服务器地址
+API key	API 密钥
+Get API key	获取 API 密钥
+Paste API key	粘贴 API 密钥
+Replace API key	更换 API 密钥
+API key required	需要 API 密钥
+Stored securely on this device and used only for this provider.	密钥安全保存在本机，仅供此服务商使用。
+Connecting…	正在连接…
+Refreshing provider catalog…	正在刷新服务商模型目录…
+Load models	加载模型
+Custom endpoint	自定义接口地址
+Use custom model ID	使用自定义模型 ID
+No catalog available yet. Type a model ID above.	暂无模型目录，请在上方输入模型 ID。
+Edit provider	编辑服务商
+Add provider	添加服务商
+Pick a service or connect your own endpoint	选择服务商或连接自定义接口
+Add the credentials needed to reach this provider	填写连接此服务商所需的凭据
+Search providers or models	搜索服务商或模型
+Search providers	搜索服务商
+Search models	搜索模型
+Search models or providers	搜索模型或服务商
+Search all models	搜索所有模型
+Search, filter, or enter any model ID	搜索、筛选或输入模型 ID
+Find a model across your providers	在所有服务商中查找模型
+Choose a model available with your ChatGPT plan	选择 ChatGPT 套餐可用的模型
+Connect models and choose what powers your chats	连接模型并选择聊天使用的模型
+Providers	模型服务商
+All providers	所有服务商
+Current provider	当前服务商
+Custom model	自定义模型
+Add custom model	添加自定义模型
+Use custom model	使用自定义模型
+Add any model ID supported by $providerName.	添加 $providerName 支持的任意模型 ID。
+Model ID	模型 ID
+Reasoning model	推理模型
+Enables thinking level ladder for this model	为该模型启用思考强度分级
+Add & Select	添加并选择
+Manage providers…	管理模型服务商…
+Manage providers	管理模型服务商
+Add connections, sign in and choose models	添加连接、登录并选择模型
+No providers yet	尚无模型服务商
+No matching providers	没有匹配的服务商
+No matching providers. Try searching or show disabled providers.	没有匹配的服务商，请更换关键词或显示已停用服务商。
+No models match these filters.	没有符合筛选条件的模型。
+No models match. Try another search or refresh catalogs.	没有匹配的模型，请更换关键词或刷新目录。
+No models available. Try refreshing.	没有可用模型，请尝试刷新。
+Add a provider first. The model list follows from it.	请先添加服务商，然后选择其模型。
+Add a provider, then choose its model.	添加服务商后即可选择模型。
+Try a different search or show disabled providers.	请更换关键词或显示已停用服务商。
+Disabled providers stay searchable. Existing chats keep their model.	停用的服务商仍可搜索，现有聊天保留所选模型。
+Show disabled	显示已停用项
+Disabled · Enable & use	已停用 · 启用并使用
+No matching settings	没有匹配的设置
+Search settings	搜索设置
+Clear search	清除搜索
+Settings categories	设置分类
+Try “theme”, “voice” or “permissions”.	试试搜索“主题”“语音”或“权限”。
+Settings	设置
+Personalize	个性化
+Your assistant	你的助手
+System	跟随系统
+Light	浅色
+Dark	深色
+AMOLED	纯黑
+Selected	已选择
+Popular	热门
+Favourites	收藏
+Recent	最近
+All	全部
+Switch	切换
+Thinking only	仅显示推理模型
+Fallbacks	备用模型
+Use the same model in every chat	所有聊天使用同一模型
+Changes apply across all chats.	更改将应用到所有聊天。
+Each chat remembers its own model.	每个聊天分别记住所选模型。
+Search also finds disabled providers.	搜索也会包含已停用的服务商。
+Loading provider catalogs…	正在加载服务商模型目录…
+Could not refresh	无法刷新
+Refresh models	刷新模型
+Reloading models…	正在重新加载模型…
+Using ChatGPT plan	正在使用 ChatGPT 套餐
+Remove custom model	移除自定义模型
+Tap a star beside a model to keep it here.	点击模型旁的星标即可收藏。
+Models you choose will appear here.	你选择的模型将显示在这里。
+Enable for this workspace	为当前工作区启用
+Update model catalog	更新模型目录
+Catalog updated	模型目录已更新
+Updating catalog…	正在更新模型目录…
+Connect any compatible API or local server	连接兼容的 API 或本地服务器
+Runs locally without a key	本地运行，无需密钥
+No API key is needed.	无需 API 密钥。
+Choose a workspace first	请先选择工作区
+Workspace	工作区
+Active workspace	当前工作区
+Active	已启用
+Add workspace	添加工作区
+Delete workspace?	删除工作区？
+Files on disk are not deleted.	不会删除磁盘上的文件。
+Delete	删除
+Terminal & environment	终端与运行环境
+Terminal	终端
+Environment	运行环境
+Ready	就绪
+Granted ✓	已授权 ✓
+Needs grant	需要授权
+Shizuku ✓	Shizuku ✓
+Compatibility ✓	兼容模式 ✓
+Connection failed	连接失败
+Not connected	未连接
+Start Shizuku	启动 Shizuku
+Not installed	未安装
+App workspace shell	应用工作区 Shell
+Full Linux toolchain in the private workspace	在私有工作区中运行完整 Linux 工具链
+Shared storage	共享存储
+Read and write project files in shared storage	在共享存储空间读写项目文件
+Open storage settings	打开存储设置
+System paths & any folder	系统路径与任意文件夹
+ADB-shell privileges via Shizuku	通过 Shizuku 使用 ADB Shell 权限
+Check for updates	检查更新
+Update	更新
+Uninstall	卸载
+Install CodeGraph	安装 CodeGraph
+Indexed	已建立索引
+Not indexed	尚未建立索引
+Working…	处理中…
+Sync	同步
+Re-index	重新索引
+Disable	停用
+Agent integration	Agent 集成
+Web search	网页搜索
+Public search engines, no setup	使用公共搜索引擎，无需配置
+Replace key	更换密钥
+Remove	移除
+I have a key	我有密钥
+Save and check	保存并验证
+Checking…	正在验证…
+Checking that key with Groq…	正在向 Groq 验证密钥…
+Key verified and saved	密钥已验证并保存
+Verification failed	验证失败
+Get Groq API key	获取 Groq API 密钥
+Replace Groq API key	更换 Groq API 密钥
+Paste Groq API key	粘贴 Groq API 密钥
+Could not reach the provider. Check your connection and try again.	无法连接服务商，请检查网络后重试。
+Voice & speech	语音与朗读
+Voice & speech input	语音与语音输入
+Speech-to-text engine	语音转文字引擎
+Inbuilt Android recognizer	安卓内置语音识别
+Uses the on-device or system speech recognizer without sending audio to external APIs.	使用设备或系统语音识别，不向外部 API 发送音频。
+Whisper Model	Whisper 模型
+Get a free API key at console.groq.com/keys.	可在 console.groq.com/keys 免费获取 API 密钥。
+MCP servers	MCP 服务器
+Extra tools the agent can use in any chat	Agent 在任意聊天中可使用的额外工具
+Not connected yet; tap Test, or it connects before a run	尚未连接；点击“测试”，或在执行前自动连接
+Connected · ${status.toolCount} tools	已连接 · ${status.toolCount} 个工具
+Sign in to use this server	登录后使用该服务器
+Authenticate	身份验证
+Test	测试
+Edit	编辑
+Add server	添加服务器
+Add MCP server	添加 MCP 服务器
+Paste config	粘贴配置
+Could not parse that. Use the manual editor below.	解析失败，请使用下方的手动编辑器。
+Manual editor	手动编辑器
+Edit MCP server	编辑 MCP 服务器
+Name	名称
+Local	本地
+Command	命令
+Arguments (one per line)	参数（每行一个）
+Environment variables (KEY=value per line)	环境变量（每行 KEY=value）
+Add all	全部添加
+Tools appear in chats as mcp__server__tool and follow the normal 	工具在聊天中显示为 mcp__server__tool，并遵守常规
+permission rules. If a server needs sign-in, an Authenticate 	权限规则。如果服务器需要登录，会在测试后出现身份验证
+button appears after Test.	按钮。
+Agent behavior	Agent 行为
+Agent tools	Agent 工具
+Tools	工具
+Permissions	权限
+Notifications	通知
+Privacy	隐私
+Privacy & security	隐私与安全
+Storage	存储
+Chat & commands	聊天与命令
+Appearance	外观
+Theme	主题
+Language	语言
+About	关于
+Connected accounts	已连接的账号
+Local models	本地模型
+Model settings	模型设置
+Assistant tools	助手工具
+GitHub integration	GitHub 集成
+Backup & restore	备份与恢复
+Import	导入
+Export	导出
+Advanced	高级
+General	通用
+Search	搜索
+Enable	启用
+Enabled	已启用
+Disabled	已停用
+Show more	显示更多
+Show less	收起
+Show details	查看详情
+Hide details	隐藏详情
+Copy	复制
+Copied	已复制
+Retry	重试
+Open	打开
+Select	选择
+Done	完成
+OK	确定
+Confirm	确认
+Continue chat	继续聊天
+New chat	新建聊天
+New conversation	新建对话
+Chat	聊天
+Chats	聊天列表
+History	历史记录
+Projects	项目
+Files	文件
+Folder	文件夹
+Folders	文件夹
+New folder	新建文件夹
+New file	新建文件
+Open file	打开文件
+Delete file	删除文件
+Rename	重命名
+Duplicate	创建副本
+Move	移动
+Share	分享
+Download	下载
+Upload	上传
+Refresh	刷新
+Loading…	正在加载…
+Processing…	处理中…
+Please wait…	请稍候…
+Failed	失败
+Success	成功
+Error	错误
+Warning	警告
+Information	信息
+Stop	停止
+Pause	暂停
+Resume	继续
+Run	运行
+Running…	运行中…
+Start	开始
+Finish	完成
+Finished	已完成
+Completed	已完成
+Pending	等待中
+Working	正在处理
+Waiting	等待中
+Approved	已批准
+Denied	已拒绝
+Approve	批准
+Reject	拒绝
+Allow	允许
+Deny	拒绝
+Always allow	始终允许
+Allow once	仅允许一次
+Ask every time	每次询问
+Never allow	永不允许
+Remember	记住
+Forget	清除记录
+Permissions required	需要权限
+Grant permission	授予权限
+Open settings	打开设置
+Install	安装
+Installing…	正在安装…
+Restart	重新启动
+Connection	连接
+Connected	已连接
+Disconnected	已断开连接
+Connect	连接
+Disconnect	断开连接
+Sign in	登录
+Sign out	退出登录
+Log in	登录
+Log out	退出登录
+Account	账号
+Accounts	账号
+Status	状态
+Provider	服务商
+Model	模型
+Models	模型
+Choose provider	选择服务商
+Change model	更换模型
+Search result	搜索结果
+Search results	搜索结果
+No results	没有结果
+No results found	未找到结果
+No matches	没有匹配项
+No items	没有项目
+Empty	空
+Copy to clipboard	复制到剪贴板
+Copied to clipboard	已复制到剪贴板
+Loading chat…	正在加载聊天…
+Loading older messages…	正在加载更早的消息…
+Load older messages	加载更早的消息
+This message is no longer in the chat.	该消息已不在聊天中。
+Choose a model for this chat	为本次聊天选择模型
+Add a provider to get started	添加模型服务商以开始使用
+Your message	你的消息
+Edit message	编辑消息
+Retry this message?	重试这条消息？
+Edit this message?	编辑这条消息？
+Edit & resend	编辑并重新发送
+Undo file changes	撤销文件修改
+Loading checkpoints…	正在加载检查点…
+No file changes to undo.	没有可撤销的文件改动。
+Review…	检查…
+Undo to this checkpoint?	撤销到这个检查点？
+No tracked file changes in this window.	该范围内没有记录到文件改动。
+Undo	撤销
+Files changed	修改过的文件
+Edited files	已编辑文件
+Collapse edited files	折叠已编辑文件
+Expand edited files	展开已编辑文件
+Loading model…	正在加载模型…
+Write a message first	请先输入消息
+Schedule a text message without attachments	定时发送不含附件的文本消息
+More message actions	更多消息操作
+Scroll to latest	滚动到最新消息
+Session cost	会话费用
+Calculating…	正在计算…
+Cost estimate unknown for this model	该模型的费用估算未知
+Input:	输入：
+Output:	输出：
+Fork conversation from here	从这里创建对话分支
+Fork chat	创建聊天分支
+Fork from this message	从此消息创建分支
+This chat	当前聊天
+Off for this chat	仅本次聊天关闭
+Use inbuilt speech	使用内置语音识别
+Configure Groq Whisper	配置 Groq Whisper
+Two models, one for planning, one for doing	两个模型：分别用于规划与执行
+You can now configure two models separately: one for planning mode, 	现在可以为两个阶段分别配置模型：一个负责规划，
+and one that takes over once you approve the plan and execution starts.	另一个在你批准计划并开始执行后接手。
+Configure	配置
+Allow workspace MCP servers?	允许工作区 MCP 服务器？
+Only approve configs you trust.	仅批准你信任的配置。
+Run without them	不使用它们继续运行
+Undo file changes from this turn	撤销本轮的文件更改
+Loading	正在加载
+No workspace	没有工作区
+No workspace selected	尚未选择工作区
+Select workspace	选择工作区
+Current workspace	当前工作区
+Open workspace	打开工作区
+Switch workspace	切换工作区
+Workspace settings	工作区设置
+Tool calls	工具调用
+Tool results	工具结果
+Reasoning	推理
+Thinking	思考
+Thinking…	正在思考…
+Thinking level	思考强度
+Auto	自动
+Low	低
+Medium	中
+High	高
+Maximum	最高
+Planning	规划中
+Plan	计划
+Execute	执行
+Execution	执行
+Review	审查
+Approve plan	批准计划
+Reject plan	拒绝计划
+Accept	接受
+Apply	应用
+Apply changes	应用更改
+Discard	丢弃
+Discard changes	丢弃更改
+View changes	查看更改
+Show diff	查看差异
+Diff	差异
+Build	构建
+Build failed	构建失败
+Build succeeded	构建成功
+Tests	测试
+Tests passed	测试通过
+Tests failed	测试失败
+Syntax error	语法错误
+Network error	网络错误
+Request failed	请求失败
+Connection timed out	连接超时
+Try again	重试
+Try again later	请稍后重试
+Something went wrong	出现错误
+No internet connection	无网络连接
+Check your connection	请检查网络连接
+Sign in required	需要登录
+Authentication failed	身份验证失败
+Invalid API key	API 密钥无效
+Model not found	找不到模型
+Rate limit exceeded	超出请求频率限制
+Insufficient credits	余额不足
+Context window exceeded	超出上下文长度
+Token usage	Token 用量
+Usage	用量
+Credits	余额
+Estimated cost	预估费用
+Messages	消息
+Message	消息
+Send	发送
+Send message	发送消息
+Stop generating	停止生成
+Continue generating	继续生成
+Regenerate	重新生成
+Regenerate response	重新生成回复
+Delete chat	删除聊天
+Rename chat	重命名聊天
+Clear chat	清空聊天
+Delete conversation	删除对话
+Clear history	清除历史记录
+Are you sure?	确定要这样做吗？
+This cannot be undone.	此操作无法撤销。
+Permanent	永久
+Help	帮助
+Support	支持
+Documentation	文档
+View documentation	查看文档
+Learn more	了解更多
+Check updates	检查更新
+Version	版本
+Settings saved	设置已保存
+Changes saved	修改已保存
+Unsaved changes	未保存的更改
+Reset	重置
+Reset to default	恢复默认设置
+Restore defaults	恢复默认设置
+Show live code	显示实时代码
+Show thinking	显示思考过程
+Show tool calls	显示工具调用
+Auto-continue	自动继续
+Background execution	后台执行
+Always on	始终开启
+History & backups	历史与备份
+Permission denied	权限被拒绝
+Select file	选择文件
+Select folder	选择文件夹
+Select project	选择项目
+New project	新建项目
+Create project	创建项目
+Delete project	删除项目
+Project name	项目名称
+File name	文件名
+Folder name	文件夹名称
+Search files	搜索文件
+No files found	未找到文件
+Open in browser	在浏览器中打开
+Open in editor	在编辑器中打开
+Open terminal	打开终端
+Copy path	复制路径
+Copy link	复制链接
+Open link	打开链接
+Share link	分享链接
+Access denied	访问被拒绝
+Permission needed	需要权限
+Grant access	授予访问权限
+Installed	已安装
+Available	可用
+Unavailable	不可用
+Not available	不可用
+Update available	有可用更新
+Restart required	需要重新启动
+Ready to use	可以使用
+Choose an option	选择一个选项
+Select an option	选择一个选项
+Set up	设置
+Setup	设置
+Finish setup	完成设置
+Next	下一步
+Previous	上一步
+Skip	跳过
+Get started	开始使用
+Welcome	欢迎
+Welcome to AndroidHarness	欢迎使用 AndroidHarness
+Your AI coding agent on Android	你的安卓 AI 编程 Agent
+No account required	无需注册账号
+Free to start	免费开始使用
+Search or enter a model ID	搜索或输入模型 ID
+Choose your model	选择模型
+Select a model	选择模型
+Select provider	选择服务商
+Change provider	更换服务商
+Provider settings	服务商设置
+Provider name	服务商名称
+Base URL	基础 URL
+Custom URL	自定义 URL
+Custom provider	自定义服务商
+API endpoint	API 接口地址
+Endpoint	接口地址
+API keys	API 密钥
+API Key	API 密钥
+API URL	API 地址
+OpenAI-compatible	兼容 OpenAI
+OpenAI-compatible + base URL	兼容 OpenAI + 自定义基础 URL
+Get started with a provider	通过服务商开始使用
+Select a provider	选择服务商
+Enter an API key	输入 API 密钥
+Enter your API key	输入你的 API 密钥
+Key saved	密钥已保存
+Save changes	保存修改
+Test connection	测试连接
+Test API key	测试 API 密钥
+Refresh catalog	刷新模型目录
+Loading models…	正在加载模型…
+No models found	未找到模型
+Model catalog	模型目录
+Model name	模型名称
+Choose from catalog	从目录中选择
+Search the catalog	搜索模型目录
+Recommended	推荐
+Custom	自定义
+Default	默认
+Default model	默认模型
+Selected model	当前选择的模型
+# Additional phrases grounded in current upstream UI components
+Grant storage access to start coding. Notifications and other tools are optional.	授予存储权限即可开始编程；通知和其他工具是可选的。
+Storage access	存储权限
+Device storage access granted	已授予设备存储权限
+Required: allow access to device files and folders	必需：允许访问设备文件与文件夹
+Runs report progress and approvals	运行进度与审批通知
+Progress and approvals outside the app	在应用外接收进度和审批通知
+Optional: full shell toolchain & background servers	可选：完整 Shell 工具链与后台服务器
+Open the Shizuku app and start it	打开 Shizuku 并启动服务
+Grant access to unlock ADB-level commands	授权以使用 ADB 级命令
+Connected: privileged shell ready	已连接：特权 Shell 就绪
+Granted: waiting for user service…	已授权：正在等待用户服务…
+Linux environment	Linux 运行环境
+Ready: bash, git, python, node and npm for real commands	已就绪：可使用 bash、git、python、node 和 npm 执行命令
+Resolving packages…	正在解析软件包…
+Optional: bash, git, python, pip, node, npm for real commands	可选：安装 bash、git、python、pip、node、npm 以执行命令
+Battery optimization	电池优化
+Exempted: long runs survive screen-off	已设为不受限制：熄屏后长任务可继续执行
+Optional: keeps long runs alive on aggressive OEMs	可选：避免部分手机系统过早终止长任务
+Ready to begin	可以开始
+Allow storage access to begin	请先允许存储权限
+Start harness	启动 Harness
+Transcribing audio with Groq Whisper…	正在使用 Groq Whisper 转录音频…
+Remove skill	移除技能
+Listening…	正在聆听…
+Add a note, or send…	添加说明，或直接发送…
+Queue message	加入消息队列
+Describe a task…	描述你的任务…
+Message your agent…	给 Agent 发送消息…
+Message input	消息输入框
+Transcribe voice message	转录语音消息
+Stop voice input	停止语音输入
+Voice input	语音输入
+Release to cancel	松开以取消
+Hands free	免提
+Recording. Release to send, slide left to cancel, slide up to lock	正在录音：松开发送、左滑取消、上滑锁定
+Tap to lock recording, hold to record a voice message	点击锁定录音，长按录制语音消息
+Message actions	消息操作
+Photo or image	照片或图片
+Any file	任意文件
+Schedule message	定时发送消息
+Discard recording	丢弃录音
+Create a Python hello world and run it	创建并运行 Python Hello World
+Explore my workspace and summarize it	浏览我的工作区并生成摘要
+Build a simple HTML landing page	制作一个简单的 HTML 落地页
+Set up a new project with a README	创建带 README 的新项目
+What do you want to build?	你想构建什么？
+Connect a provider	连接模型服务商
+Start with an idea or create a new project.	从一个想法开始，或创建新项目。
+Add an API key for OpenAI, Anthropic or Gemini to get started.	添加 OpenAI、Anthropic 或 Gemini 的 API 密钥即可开始使用。
+Open Buy Me a Coffee	打开赞助页面
+Help us keep building	支持我们持续开发
+All present	已全部安装
+Check missing	检查缺失组件
+Fix the issue (usually network) and install again.	解决问题（通常是网络问题）后重试安装。
+Installs bash, git, python 3, pip, node.js and npm into private storage.	将 bash、git、Python 3、pip、Node.js 和 npm 安装到应用私有存储中。
+Retry install	重试安装
+Install full environment	安装完整运行环境
+Uninstall Linux environment?	卸载 Linux 运行环境？
+Running tools…	正在运行工具…
+Completed with failures	已完成，但存在失败项目
+Collapse activity	收起活动记录
+Expand activity	展开活动记录
+Chat workspace	聊天工作区
+Assigned to this chat	已分配给当前聊天
+Default for new chats	新聊天默认使用
+Add workspace…	添加工作区…
+Deselect all	取消全选
+Select all	全选
+Select items	选择项目
+GitHub · Commit & push	GitHub · 提交并推送
+Share failed	分享失败
+Filter this folder	筛选当前文件夹
+Empty directory.	文件夹为空。
+Rename…	重命名…
+Copy to…	复制到…
+Move to…	移动到…
+Share…	分享…
+Open externally…	使用外部应用打开…
+No app can open this	没有应用可以打开此文件
+The folder and everything inside it will be removed permanently.	此文件夹及其全部内容将被永久删除。
+This file will be removed permanently.	此文件将被永久删除。
+Copy here	复制到这里
+Move here	移动到这里
+Could not delete this item.	无法删除此项目。
+Some items could not be processed	部分项目处理失败
+Could not remove workspace	无法移除工作区
+Remote folder	远程文件夹
+Enter a name.	请输入名称。
+That name isn't valid.	名称无效。
+Ask about this file	询问此文件
+Ask about this section	询问此代码段
+Your question	你的问题
+Ask agent	询问 Agent
+Undo this file?	撤销此文件的修改？
+Undo this section?	撤销此代码段的修改？
+Undo failed	撤销失败
+Diff unavailable: the pre-change content was too large to track.	无法查看差异：修改前的内容过大，无法追踪。
+Ask about changes	询问修改内容
+Undoing…	正在撤销…
+Undo file	撤销文件修改
+Hide sections	隐藏分段
+Undo section	撤销此分段
+Pause active tasks before undoing changes.	撤销修改前请先暂停正在运行的任务。
+File not found or workspace unavailable.	文件不存在或工作区不可用。
+Could not read file.	无法读取文件。
+Done editing	结束编辑
+Hide find	隐藏搜索
+Find…	查找…
+Word wrap: on	自动换行：开启
+Word wrap: off	自动换行：关闭
+Go to line…	跳转到行…
+Open externally	使用外部应用打开
+Binary file: it can't be edited as text.	二进制文件无法作为文本编辑。
+Select less code to ask the agent	请减少选中的代码再询问 Agent
+Selected code	已选代码
+Ask about selected code	询问所选代码
+Choose an action, then review and send it in chat.	选择操作，检查后在聊天中发送。
+Save & exit	保存并退出
+Open with…	打开方式…
+Previous match	上一个匹配项
+Next match	下一个匹配项
+Match case	区分大小写
+Close find	关闭查找
+Replace with	替换为
+Go to line	跳转到行
+Line number	行号
+Add project	添加项目
+Refresh project	刷新项目
+This project is unavailable. Your chats are still in All chats.	该项目不可用，聊天仍保存在“全部聊天”中。
+Connect or manage repository	连接或管理代码仓库
+Checking repository…	正在检查代码仓库…
+Working tree clean	工作区没有未提交的改动
+Build & Test	构建与测试
+No checks run yet	尚未执行检查
+Run your project from Build & Test	请从“构建与测试”运行项目
+No chats yet. Start one in this project.	该项目尚无聊天，开始一个新对话吧。
+No automations yet.	还没有自动化任务。
+Add automation	添加自动化任务
+Manage automations	管理自动化任务
+Project memory	项目记忆
+Project details	项目详情
+Saving…	正在保存…
+Git needs a workspace with shell access	Git 需要具备 Shell 权限的工作区
+Install Git tools in Terminal & device	请在“终端与设备”中安装 Git 工具
+Repository check incomplete	代码仓库检查未完成
+No Git repository	不是 Git 仓库
+Repository status unavailable · Retry	仓库状态不可用 · 重试
+Detached HEAD	游离的 HEAD 状态
+Changes unavailable · Retry	改动不可用 · 重试
+Branch unavailable · Retry	分支不可用 · 重试
+Run agent tasks on your schedule	按照设定时间运行 Agent 任务
+Project unavailable	项目不可用
+GitHub push preset	GitHub 推送预设
+Choose a workspace to create automations	请选择一个工作区以创建自动化任务
+Automations run inside this workspace	自动化任务会在这个工作区中运行
+Scheduled message	定时消息
+Automation with checks	包含检查的自动化任务
+Create your first automation	创建第一个自动化任务
+New automation	新建自动化任务
+No runs yet	尚无运行记录
+Completed and failed runs will appear here with their latest result.	已完成和失败的任务会在此显示最新结果。
+Cancel this schedule?	取消此日程？
+Future runs will stop. Chat history and completed work will stay available.	后续运行将停止，但聊天历史和已完成的工作仍会保留。
+Cancel schedule	取消日程
+Keep schedule	保留日程
+App default AI	应用默认 AI
+One time	一次性
+Every hour	每小时
+Unmetered only	仅非计量网络
+Any internet	任何网络
+Continues an existing chat	继续现有聊天
+Run now	立即运行
+Open latest run	打开最新运行
+Open run	打开运行记录
+Run again	再次运行
+Unknown model	未知模型
+Ask AI	询问 AI
+Describe it naturally	用自然语言描述
+Configure every detail	配置全部细节
+Could not ask AI.	无法向 AI 发送请求。
+Edit automation	编辑自动化任务
+Create automation	创建自动化任务
+Unknown provider	未知服务商
+No API key for this provider	此服务商没有配置 API 密钥
+Run model	执行模型
+Choose a provider and model	选择服务商和模型
+Saved with this automation. Chat model changes won't affect it.	此设置随自动化任务保存，聊天模型的更改不会影响它。
+Build an automation with AI	通过 AI 创建自动化任务
+Say what it should do and when it should run.	描述任务内容和运行时间。
+Keep the project building	持续构建项目
+Every hour · find and fix build failures	每小时检查并修复构建失败
+Build a debug APK	构建调试版 APK
+Tomorrow at 8 PM · fix errors if needed	明晚 8 点 · 必要时修复错误
+Run the test suite	运行测试套件
+Daily at 9 AM · fix failing tests	每天上午 9 点 · 修复失败的测试
+SSH workspace	SSH 工作区
+Shizuku (shell user)	Shizuku（Shell 用户）
+App user	应用用户
+Privileged mode	特权模式
+Clear output	清除输出
+Ask before each tool action, including reads.	每次工具操作都需审批，包括读取。
+Read freely. Ask before edits and commands.	允许自由读取；编辑和执行命令前需要审批。
+Run automatically with workspace and command safeguards.	在工作区和命令安全限制下自动运行。
+Run without approvals, workspace limits or command safeguards.	无需审批，并关闭工作区和命令安全限制。
+Choose how the agent works. You can also change permissions from chat.	选择 Agent 的工作方式，也可在聊天中修改权限。
+Default permission mode	默认权限模式
+Run limits	运行限制
+Max context window	最大上下文窗口
+Cap the context sent to the model.	限制发送给模型的上下文量。
+Tool-call iteration limit	工具调用轮次限制
+How many tool rounds a run can take.	单次运行允许的最大工具轮次。
+Project instructions	项目指令
+Project instructions (AGENTS.md)	项目指令（AGENTS.md）
+View or edit the rules for your current workspace.	查看或编辑当前工作区规则。
+Add skill	添加技能
+Your skills	你的技能
+This workspace	当前工作区
+Could not finish this action. Please retry.	无法完成操作，请重试。
+Open @$username in Telegram.	在 Telegram 中打开 @$username。
+Telegram enabled.	Telegram 已启用。
+Needs attention	需要处理
+Enable Telegram	启用 Telegram
+Telegram paused.	Telegram 已暂停。
+Remote control	远程控制
+More options	更多选项
+Change token	更换 Token
+Pair account	绑定账号
+Pair again	重新绑定
+Pairing started.	已开始配对。
+Send test message	发送测试消息
+Test message sent.	测试消息已发送。
+Stop task	停止任务
+Task stopped.	任务已停止。
+Battery settings	电池设置
+Unpair account	解除账号绑定
+Account unpaired.	账号已解除绑定。
+Disconnect bot	断开机器人连接
+Chat and edit your projects from Telegram.	通过 Telegram 聊天并编辑项目。
+Open bot	打开机器人
+Not paired	未配对
+Connect bot	连接机器人
+Create bot	创建机器人
+Choose project	选择项目
+Project selected.	项目已选择。
+New Telegram chat	新建 Telegram 聊天
+Chat selected.	聊天已选择。
+Open chat	打开聊天
+New chat ready.	新聊天已就绪。
+Could not refresh models. Please retry.	无法刷新模型，请重试。
+Shared across chats	所有聊天共享
+Model selected.	模型已选择。
+Plan mode selected.	已选择规划模式。
+Act mode selected.	已选择执行模式。
+App default	应用默认
+Help & commands	帮助与命令
+Saved work	已保存的工作
+Task queued.	任务已加入队列。
+Retry task	重试任务
+Reply delivery failed. Check Telegram before resending.	回复发送失败，重新发送前请先检查 Telegram。
+Reply queued.	回复已加入发送队列。
+Resend reply	重新发送回复
+Show fewer	显示更少
+GitHub Releases	GitHub 发布页面
+What's new	更新内容
+No release notes provided.	未提供更新说明。
+Fetching APK asset from GitHub Releases…	正在从 GitHub Releases 获取 APK…
+Installing via Shizuku…	正在通过 Shizuku 安装…
+Opening system installer…	正在打开系统安装器…
+Confirm the package installer prompt to finish updating.	在系统安装器中确认，以完成更新。
+Installation complete!	安装完成！
+Ready to install	可以安装
+APK staged. Follow installer instructions.	APK 已准备好，请按照安装器提示操作。
+Open release on GitHub →	在 GitHub 上打开发布页面 →
+Downloading…	正在下载…
+Installing update…	正在安装更新…
+Checking for updates…	正在检查更新…
+You're up to date	已是最新版本
+Downloading update	正在下载更新
+Opening installer…	正在打开安装器…
+Installed!	已安装！
+Handed to installer	已交给系统安装器
+Token usage and cache performance	Token 用量与缓存性能
+Fresh in	新增输入
+Cache reads	缓存读取
+Cache writes	缓存写入
+By model	按模型统计
+Cache performance	缓存性能
+Overall cache hit rate	总体缓存命中率
+Maximum cache hit score	最高缓存命中分数
+best session in this window	此时间段内表现最好的会话
