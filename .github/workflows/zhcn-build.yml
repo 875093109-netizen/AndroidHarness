@@ -25,12 +25,53 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Install required NDK
         run: '${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.2.12479018"'
+
+      # A stable signing key is required so that a newer zh-CN build can be
+      # installed *over* an existing one. Without it AGP generates a random
+      # debug key on every runner, and every upgrade fails with a signature
+      # mismatch (forcing an uninstall, which wipes all app data).
+      - name: Restore stable debug keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROIDHARNESS_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROIDHARNESS_DEBUG_KEYSTORE_BASE64 is not set. The APK would be signed with a random key and could not upgrade an existing install. Aborting on purpose."
+            exit 1
+          fi
+          mkdir -p signing-keys
+          printf '%s' "$KEYSTORE_B64" | base64 -d > signing-keys/debug.keystore
+          keytool -list -keystore signing-keys/debug.keystore -storepass android -alias androiddebugkey
+          echo "OK: stable debug keystore restored."
+
       - name: Apply Chinese localization patch
         run: python3 zhcn/apply_zhcn.py --root . --report zhcn/report.json
       - name: Test translation script
         run: python3 -m unittest discover -s zhcn -p 'test_*.py'
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      # Guard rail: prove the APK really carries the stable key, so a silently
+      # rotated key can never ship and break in-place upgrades.
+      - name: Verify APK signer is the stable key
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER=$(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $SDK/build-tools"
+            ls "$SDK"/build-tools || true
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK"
+          DIGEST=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          echo "Signer SHA-256 digest: $DIGEST"
+          EXPECTED="D6:DA:FD:AF:CB:72:27:63:9F:71:56:74:D0:66:FD:5E:2E:76:E2:A6:EF:08:13:F4:B9:D7:DA:9E:04:C9:1C:FB"
+          if [ "$DIGEST" != "$EXPECTED" ]; then
+            echo "::error::APK signer digest differs from the stable key (expected $EXPECTED). In-place upgrades would break."
+            exit 1
+          fi
+          echo "OK: APK is signed with the stable key."
+
       - name: Upload Chinese APK and translation report
         uses: actions/upload-artifact@v4
         with:
